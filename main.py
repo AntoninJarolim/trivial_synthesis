@@ -23,6 +23,12 @@ class Hole:
         return self.selected_action_index + 1 < len(self.actions)
 
 
+class Choice:
+    def __init__(self, bv, assignment):
+        self.assignment = assignment
+        self.bv = bv
+
+
 class DesignSpace:
     def __init__(self, file_path):
         self.prism_program = stormpy.parse_prism_program(file_path)
@@ -42,10 +48,9 @@ class DesignSpace:
         if self.current_assignment is not None:
             self.update_assignment()
         self.current_assignment = [hole.selected_action for hole in self.design_space]
-        return self.assignment_to_bv(), self.current_assignment
+        return Choice(self.assignment_to_bv(), self.current_assignment)
 
     def create_design_space(self):
-        print(self.model)
         holes = []
         seen_observations = []
         observations = self.model.observations
@@ -143,16 +148,30 @@ def verify_dtmc(dtmc, specification):
     return synthesis_result
 
 
+def double_check(model, bv, specification):
+    specification = exact_specifications(specification)
+    results = []
+    dtmc = Dtmc(model, bv)
+    for prop in specification:
+        result = analyze_model(dtmc.dtmc, prop)
+        results.append(result)
+    return results
+
+
 if __name__ == '__main__':
     template_path, specification = get_args()
     design_space = DesignSpace(template_path)
 
+    print("Synthesis initiated.")
     satisfying_assignment = None
-    for choice, current_assignment in design_space:
-        dtmc = Dtmc(design_space.model, choice)
+    for choice in design_space:
+        dtmc = Dtmc(design_space.model, choice.bv)
         result = verify_dtmc(dtmc, specification)
         if result is True:
-            satisfying_assignment = current_assignment
-    print("Synthesis completed")
-    print("Printing satisfying assignment below:")
-    print(design_space.explain_assignment(satisfying_assignment))
+            satisfying_assignment = choice
+    print("\n---------------- Synthesis completed ----------------\n")
+    results = double_check(design_space.model, satisfying_assignment.bv, specification)
+    results_str = ", ".join(str(r) for r in results)
+    print(f"Double-checking: {results_str}")
+    print("Satisfying assignment:")
+    print(design_space.explain_assignment(satisfying_assignment.assignment))

@@ -1,5 +1,6 @@
 import argparse
 import os
+import re
 
 
 def read_props(props_path):
@@ -9,6 +10,8 @@ def read_props(props_path):
         line = line.strip()
         if not line.startswith("//") and len(line) > 0:
             props.append(line)
+    print("Specification: ", end="")
+    print(", ".join(props))
     return props
 
 
@@ -20,6 +23,14 @@ def get_args():
     props_path = os.path.join(args.project_path, "sketch.props")
     props = read_props(props_path)
     return template_path, props
+
+
+def exact_specifications(specification: list[str]):
+    new_specification = []
+    for s in specification:
+        replaced = re.sub(r"([a-zA-Z\s]+)(.+)(\[)", r"\1=?\3", s)
+        new_specification.append(replaced)
+    return new_specification
 
 
 def print_mdp(mdp_model):
