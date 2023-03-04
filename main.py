@@ -158,7 +158,7 @@ def double_check(model, bv, specification):
     return results
 
 
-if __name__ == '__main__':
+def run_synthesis():
     template_path, specification = get_args()
     design_space = DesignSpace(template_path)
 
@@ -175,3 +175,7 @@ if __name__ == '__main__':
     print(f"Double-checking: {results_str}")
     print("Satisfying assignment:")
     print(design_space.explain_assignment(satisfying_assignment.assignment))
+
+
+if __name__ == '__main__':
+    run_synthesis()
