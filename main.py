@@ -1,23 +1,7 @@
-import argparse
-
 import stormpy
 import stormpy.synthesis
 import stormpy.pomdp
-from stormpy import LongRunAvarageOperator, ExplicitQualitativeCheckResult
-import re
-import decimal
-
-
-def print_mdp(mdp_model):
-    print(mdp_model.transition_matrix)
-    for state in mdp_model.states:
-        if state.id in mdp_model.initial_states:
-            print("State {} is initial".format(state.id))
-        for action in state.actions:
-            for transition in action.transitions:
-                print("From state {} by action {}, with probability {}, go to state {}".format(state, action,
-                                                                                               transition.value(),
-                                                                                               transition.column))
+from utils import *
 
 
 class Hole:
@@ -39,29 +23,26 @@ class Hole:
         return self.selected_action_index + 1 < len(self.actions)
 
 
-class PrismPomdp:
+class DesignSpace:
     def __init__(self, file_path):
         self.prism_program = stormpy.parse_prism_program(file_path)
         self.model = stormpy.build_model(self.prism_program)
+        self.design_space = self.create_design_space()
         # self.model = stormpy.pomdp.make_canonic(self.model)
         # ^ this also asserts that states with the same observation have the
         # same number and the same order of available actions
-        print(self.model.transition_matrix)
-        self.design_space = self.create_design_space()
 
     def __iter__(self):
         self.nr_actions = self.model.transition_matrix.nr_rows
-        self.initial_assignment = len(self.design_space) * [0]
         self.current_assignment = None
         return self
 
     def __next__(self):
-        if self.current_assignment is None:
-            self.current_assignment = self.initial_assignment
-        else:
+        # do not update at fist iteration
+        if self.current_assignment is not None:
             self.update_assignment()
-
-        return self.assignment_to_bv()
+        self.current_assignment = [hole.selected_action for hole in self.design_space]
+        return self.assignment_to_bv(), self.current_assignment
 
     def create_design_space(self):
         print(self.model)
@@ -104,13 +85,12 @@ class PrismPomdp:
             if hole.observation == observation_id:
                 return hole.selected_action
 
-
-def get_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("path")
-    args = parser.parse_args()
-    assert args.path is not None
-    return args.path
+    def explain_assignment(self, assignment) -> str:
+        assignment_str = []
+        for i, hole in enumerate(self.design_space):
+            if len(hole.actions) > 1:
+                assignment_str.append(f"observation {hole.observation} -> {assignment[i]}")
+        return ', '.join(assignment_str)
 
 
 class Dtmc:
@@ -149,16 +129,30 @@ class Dtmc:
         return stormpy.storage.SparseDtmc(components)
 
 
-def analyze_model(model, prism_program, formula):
-    # print_mdp(model)
-    properties = stormpy.parse_properties_for_prism_program(formula, prism_program)
-    result = stormpy.model_checking(model, properties[0])
+def analyze_model(model, formula):
+    properties = stormpy.parse_properties(formula)
+    prop = properties[0]
+    result = stormpy.model_checking(model, prop)
     return result.at(0)
 
 
+def verify_dtmc(dtmc, specification):
+    synthesis_result = True
+    for prop in specification:
+        synthesis_result &= analyze_model(dtmc.dtmc, prop)
+    return synthesis_result
+
+
 if __name__ == '__main__':
-    path = get_args()
-    pomdp = PrismPomdp(path)
-    for choice in pomdp:
-        dtmc = Dtmc(pomdp.model, choice)
-        a = analyze_model(dtmc.dtmc, pomdp.prism_program, 'LRA=? [ \"goal\" ]')
+    template_path, specification = get_args()
+    design_space = DesignSpace(template_path)
+
+    satisfying_assignment = None
+    for choice, current_assignment in design_space:
+        dtmc = Dtmc(design_space.model, choice)
+        result = verify_dtmc(dtmc, specification)
+        if result is True:
+            satisfying_assignment = current_assignment
+    print("Synthesis completed")
+    print("Printing satisfying assignment below:")
+    print(design_space.explain_assignment(satisfying_assignment))
