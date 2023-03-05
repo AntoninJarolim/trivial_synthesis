@@ -1,6 +1,8 @@
 import stormpy
 import stormpy.synthesis
 import stormpy.pomdp
+from stormpy import Environment
+
 from utils import *
 
 
@@ -106,7 +108,7 @@ class Dtmc:
         self.dtmc = self.mdp_as_dtmc()
 
     def restrict_mdp(self, choice):
-        keep_unreachable_states = False  # TODO investigate this
+        keep_unreachable_states = True  # TODO investigate this
         all_states = stormpy.BitVector(self.mdp.nr_states, True)
         options = stormpy.SubsystemBuilderOptions()
         options.build_action_mapping = True
@@ -135,6 +137,7 @@ class Dtmc:
 
 
 def analyze_model(model, formula):
+    # properties = stormpy.parse_properties_for_prism_program(formula, prism_program)
     properties = stormpy.parse_properties(formula)
     prop = properties[0]
     result = stormpy.model_checking(model, prop)
@@ -144,7 +147,7 @@ def analyze_model(model, formula):
 def verify_dtmc(dtmc, specification):
     synthesis_result = True
     for prop in specification:
-        synthesis_result &= analyze_model(dtmc.dtmc, prop)
+        synthesis_result &= analyze_model(dtmc, prop)
     return synthesis_result
 
 
@@ -152,6 +155,7 @@ def double_check(model, bv, specification):
     specification = exact_specifications(specification)
     results = []
     dtmc = Dtmc(model, bv)
+    stormpy.export_to_drn(dtmc.dtmc, "model-trivial.drn")
     for prop in specification:
         result = analyze_model(dtmc.dtmc, prop)
         results.append(result)
@@ -162,20 +166,23 @@ def run_synthesis():
     template_path, specification = get_args()
     design_space = DesignSpace(template_path)
 
-    print("Synthesis initiated.")
+    print("\n---------------- Synthesis initiated ----------------\n")
+
     satisfying_assignment = None
     for choice in design_space:
         dtmc = Dtmc(design_space.model, choice.bv)
-        result = verify_dtmc(dtmc, specification)
+        result = verify_dtmc(dtmc.dtmc, specification)
         if result is True:
             satisfying_assignment = choice
+            print("Found satisfying assignment: ", design_space.explain_assignment(satisfying_assignment.assignment))
     print("\n---------------- Synthesis completed ----------------\n")
     results = double_check(design_space.model, satisfying_assignment.bv, specification)
     results_str = ", ".join(str(r) for r in results)
     print(f"Double-checking: {results_str}")
-    print("Satisfying assignment:")
+    print("Last satisfying assignment:")
     print(design_space.explain_assignment(satisfying_assignment.assignment))
 
 
 if __name__ == '__main__':
     run_synthesis()
+

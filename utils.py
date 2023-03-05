@@ -2,6 +2,8 @@ import argparse
 import os
 import re
 
+import stormpy
+
 
 def read_props(props_path):
     file = open(props_path)
@@ -43,3 +45,15 @@ def print_mdp(mdp_model):
                 print(f"From state {state} by action {action}, "
                       f"with probability {transition.value()}, "
                       f"go to state {transition.column}")
+
+
+def read_pomdp_drn(sketch_path):
+    explicit_model = None
+    try:
+        builder_options = stormpy.core.DirectEncodingParserOptions()
+        builder_options.build_choice_labels = True
+        explicit_model = stormpy.core._build_sparse_model_from_drn(
+            sketch_path, builder_options)
+    except:
+        raise ValueError('Failed to read sketch file in a .drn format')
+    return explicit_model
