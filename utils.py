@@ -20,11 +20,12 @@ def read_props(props_path):
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("project_path")
+    parser.add_argument("--memory-size", default=1, type=int)
     args = parser.parse_args()
     template_path = os.path.join(args.project_path, "sketch.templ")
     props_path = os.path.join(args.project_path, "sketch.props")
     props = read_props(props_path)
-    return template_path, props
+    return template_path, props, args.memory_size
 
 
 def exact_specifications(specification: list[str]):
@@ -57,3 +58,7 @@ def read_pomdp_drn(sketch_path):
     except:
         raise ValueError('Failed to read sketch file in a .drn format')
     return explicit_model
+
+
+def print_to_drn(model):
+    stormpy.export_to_drn(model, "model.drn")

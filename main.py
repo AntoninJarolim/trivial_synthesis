@@ -1,7 +1,7 @@
 import stormpy
 import stormpy.synthesis
 import stormpy.pomdp
-from stormpy import Environment
+from stormpy import Environment, BuilderOptions
 
 from utils import *
 
@@ -32,13 +32,15 @@ class Choice:
 
 
 class DesignSpace:
-    def __init__(self, file_path):
+    def __init__(self, file_path, memory_size=1):
+        self.observation_states = None
         self.prism_program = stormpy.parse_prism_program(file_path)
-        self.model = stormpy.build_model(self.prism_program)
+
+        self.model = self.build_model()
+
+        self.unfolded = self.unfold_memory(memory_size)
+
         self.design_space = self.create_design_space()
-        # self.model = stormpy.pomdp.make_canonic(self.model)
-        # ^ this also asserts that states with the same observation have the
-        # same number and the same order of available actions
 
     def __iter__(self):
         self.nr_actions = self.model.transition_matrix.nr_rows
@@ -98,6 +100,32 @@ class DesignSpace:
             if len(hole.actions) > 1:
                 assignment_str.append(f"observation {hole.observation} -> {assignment[i]}")
         return ', '.join(assignment_str)
+
+    def unfold_memory(self, memory_size):
+        if memory_size < 2:
+            return
+
+        # mark perfect observations
+        # self.observation_states = [0 for obs in range(self.observations)]
+        # for state in range(self.pomdp.nr_states):
+        #     obs = self.pomdp.observations[state]
+        #     self.observation_states[obs] += 1
+
+        pomdp_manager = stormpy.synthesis.PomdpManager(self.model)
+
+        for obs in range(len(self.model.observations)):
+            # mem = self.observation_memory_size[obs]
+            pomdp_manager.set_observation_memory_size(obs, memory_size)
+
+        return pomdp_manager.construct_mdp()
+
+    def build_model(self):
+        builder = BuilderOptions()
+        builder.set_build_choice_labels(True)
+        model = stormpy.build_sparse_model_with_options(self.prism_program, builder)
+        return stormpy.pomdp.make_canonic(model)
+        # ^ this also asserts that states with the same observation have the
+        # same number and the same order of available actions
 
 
 class Dtmc:
@@ -163,8 +191,8 @@ def double_check(model, bv, specification):
 
 
 def run_synthesis():
-    template_path, specification = get_args()
-    design_space = DesignSpace(template_path)
+    template_path, specification, memory_size = get_args()
+    design_space = DesignSpace(template_path, memory_size)
 
     print("\n---------------- Synthesis initiated ----------------\n")
 
@@ -185,4 +213,3 @@ def run_synthesis():
 
 if __name__ == '__main__':
     run_synthesis()
-
