@@ -130,11 +130,18 @@ class DesignSpace:
 
 
 class Dtmc:
-    def __init__(self, pomdp, choice):
+    def __init__(self, pomdp, choice, mdp=None):
         self.pomdp = pomdp
-        self.mdp = self.pomdp_as_mdp()
+        self.mdp = self.create_mdp(mdp)
         self.mdp = self.restrict_mdp(choice)
         self.dtmc = self.mdp_as_dtmc()
+
+    def verify_property(self, formula):
+        # properties = stormpy.parse_properties_for_prism_program(formula, prism_program)
+        properties = stormpy.parse_properties(formula)
+        prop = properties[0]
+        result = stormpy.model_checking(self.dtmc, prop)
+        return result.at(0)
 
     def restrict_mdp(self, choice):
         keep_unreachable_states = True  # TODO investigate this
@@ -164,32 +171,30 @@ class Dtmc:
         components = stormpy.storage.SparseModelComponents(mdp.transition_matrix, mdp.labeling, mdp.reward_models)
         return stormpy.storage.SparseDtmc(components)
 
+    def create_mdp(self, mdp):
+        if mdp is not None:
+            return mdp
+        return self.pomdp_as_mdp()
+
 
 class Synthesizer:
     def __init__(self, design_space, specification):
         self.design_space = design_space
         self.specification = specification
 
-    def analyze_model(self, model, formula):
-        # properties = stormpy.parse_properties_for_prism_program(formula, prism_program)
-        properties = stormpy.parse_properties(formula)
-        prop = properties[0]
-        result = stormpy.model_checking(model, prop)
-        return result.at(0)
-
-    def verify_dtmc(self, dtmc, specification):
+    def verify_dtmc(self, dtmc):
         synthesis_result = True
-        for prop in specification:
-            synthesis_result &= self.analyze_model(dtmc, prop)
+        for prop in self.specification:
+            synthesis_result &= dtmc.verify_property(prop)
         return synthesis_result
 
-    def double_check(self, model, bv, specification):
-        specification = exact_specifications(specification)
+    def double_check(self, model, bv):
+        specification = exact_specifications(self.specification)
         results = []
         dtmc = Dtmc(model, bv)
         stormpy.export_to_drn(dtmc.dtmc, "model-trivial.drn")
         for prop in specification:
-            result = self.analyze_model(dtmc.dtmc, prop)
+            result = dtmc.verify_property(prop)
             results.append(result)
         return results
 
@@ -197,7 +202,7 @@ class Synthesizer:
         satisfying_assignment = None
         for choice in self.design_space:
             dtmc = Dtmc(self.design_space.model, choice.bv)
-            result = self.verify_dtmc(dtmc.dtmc, self.specification)
+            result = self.verify_dtmc(dtmc)
             if result is True:
                 satisfying_assignment = choice
                 print("Found satisfying assignment: ",
@@ -214,9 +219,10 @@ def run_synthesis():
     satisfying_assignment = synthesizer.run()
 
     print("\n---------------- Synthesis completed ----------------\n")
-    results = synthesizer.double_check(design_space.model, satisfying_assignment.bv, specification)
+    results = synthesizer.double_check(design_space.model, satisfying_assignment.bv)
     results_str = ", ".join(str(r) for r in results)
     print(f"Double-checking: {results_str}")
+
     print("Last satisfying assignment:")
     print(design_space.explain_assignment(satisfying_assignment.assignment))
 
