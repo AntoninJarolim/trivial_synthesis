@@ -66,6 +66,7 @@ def print_to_drn(model):
 
 def get_all_attrs(obj) -> dict:
     dic = {}
+
     for att in dir(obj):
         if not att.startswith("_"):
             print(att)

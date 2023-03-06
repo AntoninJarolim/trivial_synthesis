@@ -6,23 +6,59 @@ from stormpy import Environment, BuilderOptions
 from utils import *
 
 
-class Hole:
-    def __init__(self, observation, actions):
-        self.actions = actions
-        self.observation = observation
-        self.selected_action_index = 0
-        self.selected_action = actions[0]
+class Observation:
+    def __init__(self, state_id, model, observation_valuations):
+        self.id = model.get_observation(state_id)
+        self.label = str(observation_valuations.get_string(self.id)).replace("\t& ", ", ")
 
     def __repr__(self):
-        return f"observation {self.observation}: {self.actions}"
+        return f"id:{self.id} -> {self.label}"
 
-    def select_next_action(self):
-        self.selected_action_index += 1
-        self.selected_action = self.actions[self.selected_action_index]
-        return self.selected_action
 
-    def can_select_next_action(self):
-        return self.selected_action_index + 1 < len(self.actions)
+class Action:
+    def __init__(self, action, choice_labeling, choice):
+        self.action = action
+
+        set_of_labels = choice_labeling.get_labels_of_choice(choice)
+        self.label = str(set_of_labels) if len(set_of_labels) > 0 else "no_act_label"
+
+    def __repr__(self):
+        return self.label
+
+
+class Hole:
+    def __init__(self, observation, options):
+        self.observation = observation
+        self.selected_option_index = 0
+        self.options = options
+        self.selected_option = options[0]
+
+    def select_next_option(self):
+        self.selected_option_index += 1
+        self.selected_option = self.options[self.selected_option_index]
+        return self.selected_option
+
+    def has_next_option(self):
+        return self.selected_option_index + 1 < len(self.options)
+
+
+class ActionHole(Hole):
+    def __init__(self, observation, actions, memory: int, action_labels=None):
+        super().__init__(observation, actions)
+        self.memory = memory
+        self.action_labels = action_labels
+
+    def __repr__(self):
+        return f"A({self.observation.label}, mem: {self.memory})={self.options}"
+
+
+class MemoryHole(Hole):
+    def __init__(self, observation, options, memory: int):
+        super().__init__(observation, options)
+        self.memory = memory
+
+    def __repr__(self):
+        return f"M({self.observation.label}, mem:{self.memory})={self.options}"
 
 
 class Choice:
@@ -31,17 +67,17 @@ class Choice:
         self.bv = bv
 
 
-class DesignSpace:
+class Pomdp:
     def __init__(self, file_path, memory_size=1):
+        self.memory_size=memory_size
         self.observation_states = None
         self.prism_program = stormpy.parse_prism_program(file_path)
 
         self.model = self.build_model()
         self.unfolded = self.unfold_memory(memory_size)
-
         # atrs = get_all_attrs(self.unfolded)
 
-        self.design_space = self.create_design_space()
+        self.design_space = self.create_design_space
 
     def __iter__(self):
         self.nr_actions = self.model.transition_matrix.nr_rows
@@ -55,21 +91,35 @@ class DesignSpace:
         self.current_assignment = [hole.selected_action for hole in self.design_space]
         return Choice(self.assignment_to_bv(), self.current_assignment)
 
+    @property
     def create_design_space(self):
         holes = []
         seen_observations = []
-        observations = self.model.observations
-        observation_mr = self.model.nr_observations
-        for state in self.model.states:
-            obs = self.model.get_observation(state.id)
-            if obs not in seen_observations:
-                action_indices = []
-                for act in state.actions:
-                    action_indices.append(act.id)
-                holes.append(Hole(obs, action_indices))
+        print_to_drn(self.model)
+        choice_labeling = self.model.choice_labeling
+        # asdf = get_all_attrs(self.model)
+        observation_valuations = self.model.observation_valuations
+        dfg = self.model.observations
 
-            # choice_index = self.model.get_choice_index(0, 0)
-            seen_observations.append(obs)
+        asdf = observation_valuations.get_nr_of_states()
+        # Create action holes
+        for state in self.model.states:
+
+            obs = Observation(state.id, self.model, observation_valuations)
+            if obs.id not in seen_observations:
+                actions = []
+                for act in state.actions:
+                    choice = self.model.get_choice_index(state.id, act.id)
+                    actions.append(Action(act, choice_labeling, choice))
+                    
+                for mem in range(self.memory_size):
+                    holes.append(ActionHole(obs, actions, mem))
+
+                seen_observations.append(obs.id)
+        # Crate memory holes
+
+        for m in range(self.memory_size):
+            pass
         return holes
 
     def assignment_to_bv(self):
@@ -84,21 +134,21 @@ class DesignSpace:
         return stormpy.BitVector(self.nr_actions, selected_actions)
 
     def update_assignment(self):
-        for index, obs in enumerate(self.design_space):
-            if obs.can_select_next_action():
-                obs.select_next_action()
+        for index, hole in enumerate(self.design_space):
+            if hole.has_next_option():
+                hole.select_next_option()
                 return
         raise StopIteration
 
     def get_action_at_obs(self, observation_id):
         for index, hole in enumerate(self.design_space):
             if hole.observation == observation_id:
-                return hole.selected_action
+                return hole.selected_option
 
     def explain_assignment(self, assignment) -> str:
         assignment_str = []
         for i, hole in enumerate(self.design_space):
-            if len(hole.actions) > 1:
+            if len(hole.options) > 1:
                 assignment_str.append(f"observation {hole.observation} -> {assignment[i]}")
         return ', '.join(assignment_str)
 
@@ -112,17 +162,17 @@ class DesignSpace:
         #     obs = self.pomdp.observations[state]
         #     self.observation_states[obs] += 1
 
-        self.pomdp_manager = stormpy.synthesis.PomdpManager(self.model)
-
+        pomdp_manager = stormpy.synthesis.PomdpManager(self.model)
         for obs in range(len(self.model.observations)):
             # mem = self.observation_memory_size[obs]
-            self.pomdp_manager.set_observation_memory_size(obs, memory_size)
+            pomdp_manager.set_observation_memory_size(obs, memory_size)
 
-        return self.pomdp_manager.construct_mdp()
+        return pomdp_manager.construct_mdp()
 
     def build_model(self):
         builder = BuilderOptions()
         builder.set_build_choice_labels(True)
+        builder.set_build_observation_valuations(True)
         model = stormpy.build_sparse_model_with_options(self.prism_program, builder)
         return stormpy.pomdp.make_canonic(model)
         # ^ this also asserts that states with the same observation have the
@@ -212,7 +262,7 @@ class Synthesizer:
 
 def run_synthesis():
     template_path, specification, memory_size = get_args()
-    design_space = DesignSpace(template_path, memory_size)
+    design_space = Pomdp(template_path, memory_size)
     synthesizer = Synthesizer(design_space, specification)
 
     print("\n---------------- Synthesis initiated ----------------\n")
