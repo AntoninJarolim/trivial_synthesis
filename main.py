@@ -25,21 +25,29 @@ class Action:
     def __repr__(self):
         return self.label
 
+    def __str__(self):
+        return self.__repr__()
+
 
 class Hole:
     def __init__(self, observation, options):
         self.observation = observation
         self.selected_option_index = 0
         self.options = options
-        self.selected_option = options[0]
 
-    def select_next_option(self):
-        self.selected_option_index += 1
-        self.selected_option = self.options[self.selected_option_index]
-        return self.selected_option
+    def select_next_option(self) -> bool:
+        overflow = self.last_option_selected()
+        self.selected_option_index = 0 if overflow else self.selected_option_index + 1
+        return overflow
 
-    def has_next_option(self):
-        return self.selected_option_index + 1 < len(self.options)
+    def last_option_selected(self) -> bool:
+        return self.selected_option_index + 1 == len(self.options)
+
+    def selected_str(self):
+        return f" (current: {self.options[self.selected_option_index]})"
+
+    def get_selected_option(self):
+        return self.options[self.selected_option_index]
 
 
 class ActionHole(Hole):
@@ -48,8 +56,9 @@ class ActionHole(Hole):
         self.memory = memory
         self.action_labels = action_labels
 
+
     def __repr__(self):
-        return f"A({self.observation.label}, mem: {self.memory})={self.options}"
+        return f"A({self.observation.label}, mem: {self.memory})={self.options} " + self.selected_str()
 
 
 class MemoryHole(Hole):
@@ -58,10 +67,10 @@ class MemoryHole(Hole):
         self.memory = memory
 
     def __repr__(self):
-        return f"M({self.observation.label}, mem:{self.memory})={self.options}"
+        return f"M({self.observation.label}, mem:{self.memory})={self.options}" + self.selected_str()
 
 
-class Choice:
+class Assignment:
     def __init__(self, bv, assignment):
         self.assignment = assignment
         self.bv = bv
@@ -88,25 +97,21 @@ class Pomdp:
         # do not update at fist iteration
         if self.current_assignment is not None:
             self.update_assignment()
-        self.current_assignment = [hole.selected_action for hole in self.design_space]
-        return Choice(self.assignment_to_bv(), self.current_assignment)
+        self.current_assignment = [hole.selected_option_index for hole in self.design_space]
+        return Assignment(self.assignment_to_bv(), self.current_assignment)
 
     @property
     def create_design_space(self):
         holes = []
         seen_observations = []
-        print_to_drn(self.model)
         choice_labeling = self.model.choice_labeling
-        # asdf = get_all_attrs(self.model)
         observation_valuations = self.model.observation_valuations
-        dfg = self.model.observations
-
-        asdf = observation_valuations.get_nr_of_states()
+        # dfg = self.model.observations
+        # asdf = observation_valuations.get_nr_of_states()
         # Create action holes
         for state in self.model.states:
-
             obs = Observation(state.id, self.model, observation_valuations)
-            if obs.id not in seen_observations:
+            if obs.id not in [o.id for o in seen_observations]:
                 actions = []
                 for act in state.actions:
                     choice = self.model.get_choice_index(state.id, act.id)
@@ -115,11 +120,15 @@ class Pomdp:
                 for mem in range(self.memory_size):
                     holes.append(ActionHole(obs, actions, mem))
 
-                seen_observations.append(obs.id)
-        # Crate memory holes
+                seen_observations.append(obs)
 
-        for m in range(self.memory_size):
-            pass
+        # Crate memory holes
+        memory_options = [x for x in range(self.memory_size)]
+        for obs in seen_observations:
+            for mem in range(self.memory_size):
+                mem_hole = MemoryHole(obs, memory_options, mem)
+                holes.append(mem_hole)
+
         return holes
 
     def assignment_to_bv(self):
@@ -135,15 +144,15 @@ class Pomdp:
 
     def update_assignment(self):
         for index, hole in enumerate(self.design_space):
-            if hole.has_next_option():
-                hole.select_next_option()
+            overflow = hole.select_next_option()
+            if not overflow:
                 return
         raise StopIteration
 
     def get_action_at_obs(self, observation_id):
         for index, hole in enumerate(self.design_space):
             if hole.observation == observation_id:
-                return hole.selected_option
+                return hole.get_selected_option()
 
     def explain_assignment(self, assignment) -> str:
         assignment_str = []
@@ -250,11 +259,12 @@ class Synthesizer:
 
     def run(self):
         satisfying_assignment = None
-        for choice in self.design_space:
-            dtmc = Dtmc(self.design_space.model, choice.bv)
+        for assignment in self.design_space:
+            continue
+            dtmc = Dtmc(self.design_space.model, assignment.bv)
             result = self.verify_dtmc(dtmc)
             if result is True:
-                satisfying_assignment = choice
+                satisfying_assignment = assignment
                 print("Found satisfying assignment: ",
                       self.design_space.explain_assignment(satisfying_assignment.assignment))
         return satisfying_assignment
