@@ -44,7 +44,7 @@ class Hole:
         return self.selected_option_index + 1 == len(self.options)
 
     def selected_str(self):
-        return f" (current: {self.options[self.selected_option_index]})"
+        return f" --> {self.options[self.selected_option_index]}"
 
     def get_selected_option(self):
         return self.options[self.selected_option_index]
@@ -55,7 +55,6 @@ class ActionHole(Hole):
         super().__init__(observation, actions)
         self.memory = memory
         self.action_labels = action_labels
-
 
     def __repr__(self):
         return f"A({self.observation.label}, mem: {self.memory})={self.options} " + self.selected_str()
@@ -78,13 +77,14 @@ class Assignment:
 
 class Pomdp:
     def __init__(self, file_path, memory_size=1):
-        self.memory_size=memory_size
+        self.memory_size = memory_size
         self.observation_states = None
         self.prism_program = stormpy.parse_prism_program(file_path)
 
         self.model = self.build_model()
         self.unfolded = self.unfold_memory(memory_size)
-        # atrs = get_all_attrs(self.unfolded)
+        self.choice_labeling = self.model.choice_labeling
+        self.observation_valuations = self.model.observation_valuations
 
         self.design_space = self.create_design_space
 
@@ -102,36 +102,13 @@ class Pomdp:
 
     @property
     def create_design_space(self):
-        holes = []
-        seen_observations = []
-        choice_labeling = self.model.choice_labeling
-        observation_valuations = self.model.observation_valuations
-        # dfg = self.model.observations
-        # asdf = observation_valuations.get_nr_of_states()
-        # Create action holes
-        for state in self.model.states:
-            obs = Observation(state.id, self.model, observation_valuations)
-            if obs.id not in [o.id for o in seen_observations]:
-                actions = []
-                for act in state.actions:
-                    choice = self.model.get_choice_index(state.id, act.id)
-                    actions.append(Action(act, choice_labeling, choice))
-                    
-                for mem in range(self.memory_size):
-                    holes.append(ActionHole(obs, actions, mem))
-
-                seen_observations.append(obs)
-
-        # Crate memory holes
-        memory_options = [x for x in range(self.memory_size)]
-        for obs in seen_observations:
-            for mem in range(self.memory_size):
-                mem_hole = MemoryHole(obs, memory_options, mem)
-                holes.append(mem_hole)
-
-        return holes
+        holes, seen_observations = self.create_action_holes()
+        memory_holes = self.create_memory_holes(seen_observations)
+        design_space = holes + memory_holes
+        return design_space
 
     def assignment_to_bv(self):
+
         selected_actions = []
         for state in self.model.states:
             obs_at_state = self.model.get_observation(state.id)
@@ -162,8 +139,9 @@ class Pomdp:
         return ', '.join(assignment_str)
 
     def unfold_memory(self, memory_size):
+        # No need to unfold memory if memory=1
         if memory_size < 2:
-            return
+            return self.pomdp_as_mdp()
 
         # mark perfect observations
         # self.observation_states = [0 for obs in range(self.observations)]
@@ -171,6 +149,7 @@ class Pomdp:
         #     obs = self.pomdp.observations[state]
         #     self.observation_states[obs] += 1
 
+        # Create pomdp manager and unfold memory to pomdp creating mdp
         pomdp_manager = stormpy.synthesis.PomdpManager(self.model)
         for obs in range(len(self.model.observations)):
             # mem = self.observation_memory_size[obs]
@@ -186,6 +165,40 @@ class Pomdp:
         return stormpy.pomdp.make_canonic(model)
         # ^ this also asserts that states with the same observation have the
         # same number and the same order of available actions
+
+    def pomdp_as_mdp(self):
+        # tm = mdp.transition_matrix
+        # tm.make_row_grouping_trivial()
+        pomdp = self.model
+        components = stormpy.storage.SparseModelComponents(pomdp.transition_matrix, pomdp.labeling, pomdp.reward_models)
+        return stormpy.storage.SparseMdp(components)
+
+    def create_memory_holes(self, seen_observations):
+        holes = []
+        if self.memory_size > 1:
+            memory_options = [x for x in range(self.memory_size)]
+            for obs in seen_observations:
+                for mem in range(self.memory_size):
+                    mem_hole = MemoryHole(obs, memory_options, mem)
+                    holes.append(mem_hole)
+        return holes
+
+    def create_action_holes(self):
+        holes = []
+        seen_observations = []
+        for state in self.model.states:
+            obs = Observation(state.id, self.model, self.observation_valuations)
+            if obs.id not in [o.id for o in seen_observations]:
+                actions = []
+                for act in state.actions:
+                    choice = self.model.get_choice_index(state.id, act.id)
+                    actions.append(Action(act, self.choice_labeling, choice))
+
+                for mem in range(self.memory_size):
+                    holes.append(ActionHole(obs, actions, mem))
+
+                seen_observations.append(obs)
+        return holes, seen_observations
 
 
 class Dtmc:
@@ -215,13 +228,6 @@ class Dtmc:
         state_map = list(submodel_construction.new_to_old_state_mapping)
         choice_map = list(submodel_construction.new_to_old_action_mapping)
         return model
-
-    def pomdp_as_mdp(self):
-        # tm = mdp.transition_matrix
-        # tm.make_row_grouping_trivial()
-        pomdp = self.pomdp
-        components = stormpy.storage.SparseModelComponents(pomdp.transition_matrix, pomdp.labeling, pomdp.reward_models)
-        return stormpy.storage.SparseMdp(components)
 
     def mdp_as_dtmc(self):
         tm = self.mdp.transition_matrix
@@ -279,12 +285,15 @@ def run_synthesis():
     satisfying_assignment = synthesizer.run()
 
     print("\n---------------- Synthesis completed ----------------\n")
-    results = synthesizer.double_check(design_space.model, satisfying_assignment.bv)
-    results_str = ", ".join(str(r) for r in results)
-    print(f"Double-checking: {results_str}")
+    if satisfying_assignment is None:
+        print("Satisfying assignment was not found.")
+    else:
+        results = synthesizer.double_check(design_space.model, satisfying_assignment.bv)
+        results_str = ", ".join(str(r) for r in results)
+        print(f"Double-checking: {results_str}")
 
-    print("Last satisfying assignment:")
-    print(design_space.explain_assignment(satisfying_assignment.assignment))
+        print("Last satisfying assignment:")
+        print(design_space.explain_assignment(satisfying_assignment.assignment))
 
 
 if __name__ == '__main__':
