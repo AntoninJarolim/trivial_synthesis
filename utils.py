@@ -62,3 +62,12 @@ def read_pomdp_drn(sketch_path):
 
 def print_to_drn(model):
     stormpy.export_to_drn(model, "model.drn")
+
+
+def get_all_attrs(obj) -> dict:
+    dic = {}
+    for att in dir(obj):
+        if not att.startswith("_"):
+            print(att)
+            dic[att] = getattr(obj, att)
+    return dic

@@ -37,8 +37,9 @@ class DesignSpace:
         self.prism_program = stormpy.parse_prism_program(file_path)
 
         self.model = self.build_model()
-
         self.unfolded = self.unfold_memory(memory_size)
+
+        # atrs = get_all_attrs(self.unfolded)
 
         self.design_space = self.create_design_space()
 
@@ -111,13 +112,13 @@ class DesignSpace:
         #     obs = self.pomdp.observations[state]
         #     self.observation_states[obs] += 1
 
-        pomdp_manager = stormpy.synthesis.PomdpManager(self.model)
+        self.pomdp_manager = stormpy.synthesis.PomdpManager(self.model)
 
         for obs in range(len(self.model.observations)):
             # mem = self.observation_memory_size[obs]
-            pomdp_manager.set_observation_memory_size(obs, memory_size)
+            self.pomdp_manager.set_observation_memory_size(obs, memory_size)
 
-        return pomdp_manager.construct_mdp()
+        return self.pomdp_manager.construct_mdp()
 
     def build_model(self):
         builder = BuilderOptions()
@@ -164,47 +165,56 @@ class Dtmc:
         return stormpy.storage.SparseDtmc(components)
 
 
-def analyze_model(model, formula):
-    # properties = stormpy.parse_properties_for_prism_program(formula, prism_program)
-    properties = stormpy.parse_properties(formula)
-    prop = properties[0]
-    result = stormpy.model_checking(model, prop)
-    return result.at(0)
+class Synthesizer:
+    def __init__(self, design_space, specification):
+        self.design_space = design_space
+        self.specification = specification
 
+    def analyze_model(self, model, formula):
+        # properties = stormpy.parse_properties_for_prism_program(formula, prism_program)
+        properties = stormpy.parse_properties(formula)
+        prop = properties[0]
+        result = stormpy.model_checking(model, prop)
+        return result.at(0)
 
-def verify_dtmc(dtmc, specification):
-    synthesis_result = True
-    for prop in specification:
-        synthesis_result &= analyze_model(dtmc, prop)
-    return synthesis_result
+    def verify_dtmc(self, dtmc, specification):
+        synthesis_result = True
+        for prop in specification:
+            synthesis_result &= self.analyze_model(dtmc, prop)
+        return synthesis_result
 
+    def double_check(self, model, bv, specification):
+        specification = exact_specifications(specification)
+        results = []
+        dtmc = Dtmc(model, bv)
+        stormpy.export_to_drn(dtmc.dtmc, "model-trivial.drn")
+        for prop in specification:
+            result = self.analyze_model(dtmc.dtmc, prop)
+            results.append(result)
+        return results
 
-def double_check(model, bv, specification):
-    specification = exact_specifications(specification)
-    results = []
-    dtmc = Dtmc(model, bv)
-    stormpy.export_to_drn(dtmc.dtmc, "model-trivial.drn")
-    for prop in specification:
-        result = analyze_model(dtmc.dtmc, prop)
-        results.append(result)
-    return results
+    def run(self):
+        satisfying_assignment = None
+        for choice in self.design_space:
+            dtmc = Dtmc(self.design_space.model, choice.bv)
+            result = self.verify_dtmc(dtmc.dtmc, self.specification)
+            if result is True:
+                satisfying_assignment = choice
+                print("Found satisfying assignment: ",
+                      self.design_space.explain_assignment(satisfying_assignment.assignment))
+        return satisfying_assignment
 
 
 def run_synthesis():
     template_path, specification, memory_size = get_args()
     design_space = DesignSpace(template_path, memory_size)
+    synthesizer = Synthesizer(design_space, specification)
 
     print("\n---------------- Synthesis initiated ----------------\n")
+    satisfying_assignment = synthesizer.run()
 
-    satisfying_assignment = None
-    for choice in design_space:
-        dtmc = Dtmc(design_space.model, choice.bv)
-        result = verify_dtmc(dtmc.dtmc, specification)
-        if result is True:
-            satisfying_assignment = choice
-            print("Found satisfying assignment: ", design_space.explain_assignment(satisfying_assignment.assignment))
     print("\n---------------- Synthesis completed ----------------\n")
-    results = double_check(design_space.model, satisfying_assignment.bv, specification)
+    results = synthesizer.double_check(design_space.model, satisfying_assignment.bv, specification)
     results_str = ", ".join(str(r) for r in results)
     print(f"Double-checking: {results_str}")
     print("Last satisfying assignment:")
