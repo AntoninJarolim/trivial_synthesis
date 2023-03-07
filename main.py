@@ -372,10 +372,16 @@ class TimedSynthesizer(Synthesizer):
         super().__init__(design_space, specification)
         self.start_time = None
         self.progress_scheduler = None
+        self.finished = False
 
     def run(self):
         self.start_tracking_progress()
-        result = super().run()
+        try:
+            result = super().run()
+        except KeyboardInterrupt:
+            self.finished = True
+            exit()
+        self.finished = True
         self.print_progress()
         return result
 
@@ -384,9 +390,9 @@ class TimedSynthesizer(Synthesizer):
         self.schedule_process_print()
 
     def schedule_process_print(self):
-        if self.explored != self.design_space.size:
+        if not self.finished:
             self.print_progress()
-            self.progress_scheduler = threading.Timer(3, self.schedule_process_print)
+            self.progress_scheduler = threading.Timer(3, self.schedule_process_print) #, args=(lambda: self.finished, ))
             self.progress_scheduler.start()
 
     def print_progress(self):
