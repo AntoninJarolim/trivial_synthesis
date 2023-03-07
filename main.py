@@ -117,9 +117,6 @@ class Pomdp:
         return design_space
 
     def assignment_to_bv(self):
-        print_to_drn(self.unfolded)
-        print_mdp(self.model)
-        print_mdp(self.unfolded)
         selected_actions = []
         for state in self.unfolded_states:
             action_at_observation = self.action_at_observation(state.observation, state.memory)
@@ -139,7 +136,6 @@ class Pomdp:
                 s = State(unfolded_state, obs_at_state, m)
                 states.append(s)
         return states
-
 
     def update_assignment(self):
         for index, hole in enumerate(self.design_space):
@@ -230,11 +226,9 @@ class Pomdp:
         return holes, seen_observations
 
 
-
 class Dtmc:
-    def __init__(self, pomdp, choice, mdp=None):
-        self.pomdp = pomdp
-        self.mdp = self.create_mdp(mdp)
+    def __init__(self, mdp, choice):
+        self.mdp = mdp
         self.mdp = self.restrict_mdp(choice)
         self.dtmc = self.mdp_as_dtmc()
 
@@ -253,7 +247,6 @@ class Dtmc:
         submodel_construction = stormpy.construct_submodel(
             self.mdp, all_states, choice, keep_unreachable_states, options
         )
-
         model = submodel_construction.model
         state_map = list(submodel_construction.new_to_old_state_mapping)
         choice_map = list(submodel_construction.new_to_old_action_mapping)
@@ -265,11 +258,6 @@ class Dtmc:
         mdp = self.mdp
         components = stormpy.storage.SparseModelComponents(mdp.transition_matrix, mdp.labeling, mdp.reward_models)
         return stormpy.storage.SparseDtmc(components)
-
-    def create_mdp(self, mdp):
-        if mdp is not None:
-            return mdp
-        return self.pomdp_as_mdp()
 
 
 class Synthesizer:
@@ -296,8 +284,7 @@ class Synthesizer:
     def run(self):
         satisfying_assignment = None
         for assignment in self.design_space:
-            continue
-            dtmc = Dtmc(self.design_space.model, assignment.bv)
+            dtmc = Dtmc(self.design_space.unfolded, assignment.bv)
             result = self.verify_dtmc(dtmc)
             if result is True:
                 satisfying_assignment = assignment
@@ -318,7 +305,7 @@ def run_synthesis():
     if satisfying_assignment is None:
         print("Satisfying assignment was not found.")
     else:
-        results = synthesizer.double_check(design_space.model, satisfying_assignment.bv)
+        results = synthesizer.double_check(design_space.unfolded, satisfying_assignment.bv)
         results_str = ", ".join(str(r) for r in results)
         print(f"Double-checking: {results_str}")
 
