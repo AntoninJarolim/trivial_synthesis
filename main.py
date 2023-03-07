@@ -95,7 +95,7 @@ class Pomdp:
         self.choice_labeling = self.model.choice_labeling
         self.observation_valuations = self.model.observation_valuations
 
-        self.design_space = self.create_design_space
+        self.design_space = self.create_design_space()
 
     def __iter__(self):
         self.nr_actions = self.unfolded.transition_matrix.nr_rows
@@ -109,7 +109,6 @@ class Pomdp:
         self.current_assignment = [hole.selected_option_index for hole in self.design_space]
         return Assignment(self.assignment_to_bv(), self.current_assignment)
 
-    @property
     def create_design_space(self):
         holes, seen_observations = self.create_action_holes()
         memory_holes = self.create_memory_holes(seen_observations)
