@@ -68,3 +68,15 @@ def get_all_attrs(obj) -> dict:
             print(att)
             dic[att] = getattr(obj, att)
     return dic
+
+
+def estimate_time(offset_time, explored_percent):
+    if explored_percent == 0:
+        return ""
+    estimated = offset_time / explored_percent
+    for t in ["s", "m", "h"]:
+        if estimated > 60:
+            estimated /= 60
+        else:
+            break
+    return f" estimated time: {estimated:.2f}{t}"

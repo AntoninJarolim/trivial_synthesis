@@ -1,8 +1,12 @@
+import math
+import threading
+import time
+
+import numpy as np
 import stormpy
 import stormpy.synthesis
 import stormpy.pomdp
-from stormpy import Environment, BuilderOptions
-
+from stormpy import BuilderOptions
 from utils import *
 
 
@@ -34,6 +38,7 @@ class Hole:
         self.observation = observation
         self.selected_option_index = 0
         self.options = options
+        self.options_size = len(self.options)
 
     @property
     def selected_option(self):
@@ -45,7 +50,7 @@ class Hole:
         return overflow
 
     def last_option_selected(self) -> bool:
-        return self.selected_option_index + 1 == len(self.options)
+        return self.selected_option_index + 1 == self.options_size
 
     def selected_str(self):
         return f" --> {self.options[self.selected_option_index]}"
@@ -148,6 +153,7 @@ class DesignSpace:
 
         self.action_holes, seen_observations = self.create_action_holes()
         self.memory_holes = self.create_memory_holes(seen_observations)
+        self.size = self.count_assignments()
 
     @property
     def design_space(self):
@@ -226,6 +232,10 @@ class DesignSpace:
                 seen_observations.append(obs)
         return holes, seen_observations
 
+    def count_assignments(self):
+        choices = [hole.options_size for hole in self.design_space]
+        return math.prod(choices)
+
 
 class Dtmc:
     def __init__(self, mdp, choice):
@@ -303,6 +313,7 @@ class Result:
 
 class Synthesizer:
     def __init__(self, design_space, specification):
+        self.explored = 0
         self.design_space = design_space
         self.specification = specification
         self.properties = [Property(formula) for formula in specification]
@@ -314,7 +325,7 @@ class Synthesizer:
             satisfying &= dtmc.verify_property(prop.property)
 
         optimizing_value = None
-        if satisfying:
+        if satisfying and self.optimizing_property is not None:
             optimizing_value = dtmc.verify_property(self.optimizing_property.property)
         return satisfying, optimizing_value
 
@@ -329,13 +340,13 @@ class Synthesizer:
 
     def run(self):
         result = Result(self.optimizing_property)
-
         for assignment in self.design_space:
             dtmc = Dtmc(self.design_space.pomdp.unfolded, assignment.bv)
             satisfying, optimality_result = self.verify_dtmc(dtmc)
             if satisfying:
                 result.update_assignment(assignment, optimality_result)
-            # self.print_assignment(assignment, "Found satisfying assignment: ")
+                # self.print_assignment(assignment, "Found satisfying assignment: ")
+            self.explored += 1
         return result
 
     def print_assignment(self, satisfying_assignment, message=None):
@@ -351,15 +362,46 @@ class Synthesizer:
                     optimizing_property = p
                 else:
                     raise Exception("More than one optimizing property found!")
-        self.properties.remove(optimizing_property)
+        if optimizing_property is not None:
+            self.properties.remove(optimizing_property)
         return optimizing_property
+
+
+class TimedSynthesizer(Synthesizer):
+    def __init__(self, design_space, specification):
+        super().__init__(design_space, specification)
+        self.start_time = None
+        self.progress_scheduler = None
+
+    def run(self):
+        self.start_tracking_progress()
+        result = super().run()
+        self.print_progress()
+        return result
+
+    def start_tracking_progress(self):
+        self.start_time = time.time()
+        self.schedule_process_print()
+
+    def schedule_process_print(self):
+        if self.explored != self.design_space.size:
+            self.print_progress()
+            self.progress_scheduler = threading.Timer(3, self.schedule_process_print)
+            self.progress_scheduler.start()
+
+    def print_progress(self):
+        offset_time = time.time() - self.start_time
+        explored_percent = self.explored / self.design_space.size
+        print(f"{offset_time:.2f}s: explored {self.explored} out of {self.design_space.size}"
+              f" -> {explored_percent:.6f}%" +
+              estimate_time(offset_time, explored_percent))
 
 
 def run_synthesis():
     template_path, specification, memory_size = get_args()
     pomdp = Pomdp(template_path, memory_size)
     design_space = DesignSpace(pomdp)
-    synthesizer = Synthesizer(design_space, specification)
+    synthesizer = TimedSynthesizer(design_space, specification)
 
     print("\n---------------- Synthesis initiated ----------------\n")
     result = synthesizer.run()
