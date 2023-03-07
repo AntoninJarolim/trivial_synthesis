@@ -258,26 +258,38 @@ class Dtmc:
         return stormpy.storage.SparseDtmc(components)
 
 
+class Property:
+    def __init__(self, formula):
+        self.formula = formula
+        self.property = self.parse_property(formula)
+        self.exact_formula = exact_specifications(formula)
+        self.exact_property = self.parse_property(self.exact_formula)
+
+    @staticmethod
+    def parse_property(formula):
+        # properties = stormpy.parse_properties_for_prism_program(formula, prism_program)
+        properties = stormpy.parse_properties(formula)
+        return properties[0]
+
+
 class Synthesizer:
     def __init__(self, design_space, specification):
         self.design_space = design_space
         self.specification = specification
-        self.properties = [prop for prop in self.parse_specification(self.specification)]
-        self.exact_specification = exact_specifications(specification)
-        self.exact_properties = [prop for prop in self.parse_specification(self.exact_specification)]
+        self.properties = [Property(formula) for formula in specification]
 
     def verify_dtmc(self, dtmc):
         synthesis_result = True
         for prop in self.properties:
-            synthesis_result &= dtmc.verify_property(prop)
+            synthesis_result &= dtmc.verify_property(prop.property)
         return synthesis_result
 
     def double_check(self, model, bv):
         results = []
         dtmc = Dtmc(model, bv)
         stormpy.export_to_drn(dtmc.dtmc, "model-trivial.drn")
-        for prop in self.exact_properties:
-            result = dtmc.verify_property(prop)
+        for prop in self.properties:
+            result = dtmc.verify_property(prop.exact_property)
             results.append(result)
         return results
 
@@ -288,15 +300,13 @@ class Synthesizer:
             result = self.verify_dtmc(dtmc)
             if result is True:
                 satisfying_assignment = assignment
-                # print("Found satisfying assignment: ",
-                #       self.design_space.explain_assignment(satisfying_assignment.assignment))
+                # self.print_assignment(assignment, "Found satisfying assignment: ")
         return satisfying_assignment
 
-    def parse_specification(self, specification):
-        for formula in specification:
-            # properties = stormpy.parse_properties_for_prism_program(formula, prism_program)
-            properties = stormpy.parse_properties(formula)
-            yield properties[0]
+    def print_assignment(self, satisfying_assignment, message=None):
+        if message is not None:
+            print(message)
+        print(self.design_space.explain_assignment(satisfying_assignment.assignment))
 
 
 def run_synthesis():

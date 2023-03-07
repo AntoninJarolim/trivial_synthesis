@@ -28,12 +28,8 @@ def get_args():
     return template_path, props, args.memory_size
 
 
-def exact_specifications(specification: list[str]):
-    new_specification = []
-    for s in specification:
-        replaced = re.sub(r"([a-zA-Z\s]+)(.+)(\[)", r"\1=?\3", s)
-        new_specification.append(replaced)
-    return new_specification
+def exact_specifications(specification: str):
+    return re.sub(r"([a-zA-Z\s]+)(.+)(\[)", r"\1=?\3", specification)
 
 
 def print_mdp(mdp_model):
