@@ -166,27 +166,27 @@ class DesignSpace:
     def assignment_to_bv(self):
         selected_actions = []
         for state in self.pomdp.unfolded_states:
-            action_at_observation = self.action_at_observation(state.observation, state.memory)
-            memory_at_observation = self.memory_at_observation(state.observation, state.memory)
+            action_at_observation, memory_at_observation = self.get_selection(state.observation, state.memory)
             select = action_at_observation.action.id * self.pomdp.memory_size + memory_at_observation
             choice_index = self.pomdp.unfolded.get_choice_index(state.state.id, select)
             selected_actions.append(choice_index)
         return stormpy.BitVector(self.nr_actions, selected_actions)
 
-    def memory_at_observation(self, observation_id, memory):
-        for index, hole in enumerate(self.design_space):
-            if type(hole) is MemoryHole:
-                if hole.observation.id == observation_id and hole.memory == memory:
-                    return hole.selected_option
+    def get_selection(self, observation_id, memory):
+        action = None
+        for hole in self.action_holes:
+            if hole.observation.id == observation_id and hole.memory == memory:
+                action = hole.selected_option
 
-    def action_at_observation(self, observation_id, memory):
-        for index, hole in enumerate(self.design_space):
-            if type(hole) is ActionHole:
-                if hole.observation.id == observation_id and hole.memory == memory:
-                    return hole.selected_option
+        memory_update = None
+        for hole in self.memory_holes:
+            if hole.observation.id == observation_id and hole.memory == memory:
+                memory_update = hole.selected_option
+
+        return action, memory_update
 
     def update_assignment(self):
-        for index, hole in enumerate(self.design_space):
+        for hole in self.design_space:
             overflow = hole.select_next_option()
             if not overflow:
                 return
