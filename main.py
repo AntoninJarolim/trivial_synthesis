@@ -75,6 +75,14 @@ class Assignment:
         self.bv = bv
 
 
+class State:
+    def __init__(self, state, observation, memory):
+        self.memory = memory
+        self.observation = observation
+        self.state = state
+
+
+
 class Pomdp:
     def __init__(self, file_path, memory_size=1):
         self.memory_size = memory_size
@@ -83,13 +91,14 @@ class Pomdp:
 
         self.model = self.build_model()
         self.unfolded = self.unfold_memory(memory_size)
+        self.unfolded_states = self.crate_unfolded_states()
         self.choice_labeling = self.model.choice_labeling
         self.observation_valuations = self.model.observation_valuations
 
         self.design_space = self.create_design_space
 
     def __iter__(self):
-        self.nr_actions = self.model.transition_matrix.nr_rows
+        self.nr_actions = self.unfolded.transition_matrix.nr_rows
         self.current_assignment = None
         return self
 
@@ -108,16 +117,29 @@ class Pomdp:
         return design_space
 
     def assignment_to_bv(self):
-
+        print_to_drn(self.unfolded)
+        print_mdp(self.model)
+        print_mdp(self.unfolded)
         selected_actions = []
+        for state in self.unfolded_states:
+            action_at_observation = self.action_at_observation(state.observation, state.memory)
+            memory_at_observation = self.memory_at_observation(state.observation, state.memory)
+            select = action_at_observation.action.id * self.memory_size + memory_at_observation
+            choice_index = self.unfolded.get_choice_index(state.state.id, select)
+            selected_actions.append(choice_index)
+        return stormpy.BitVector(self.nr_actions, selected_actions)
+
+    def crate_unfolded_states(self):
+        states = []
         for state in self.model.states:
             obs_at_state = self.model.get_observation(state.id)
-            action_at_observation = self.get_action_at_obs(obs_at_state)
-            for action in state.actions:
-                if action.id == action_at_observation:
-                    choice_index = self.model.get_choice_index(state.id, action_at_observation)
-                    selected_actions.append(choice_index)
-        return stormpy.BitVector(self.nr_actions, selected_actions)
+            for m in range(self.memory_size):
+                unfolded_index = state.id * self.memory_size + m
+                unfolded_state = self.unfolded.states[unfolded_index]
+                s = State(unfolded_state, obs_at_state, m)
+                states.append(s)
+        return states
+
 
     def update_assignment(self):
         for index, hole in enumerate(self.design_space):
@@ -126,10 +148,17 @@ class Pomdp:
                 return
         raise StopIteration
 
-    def get_action_at_obs(self, observation_id):
+    def memory_at_observation(self, observation_id, memory):
         for index, hole in enumerate(self.design_space):
-            if hole.observation == observation_id:
-                return hole.get_selected_option()
+            if type(hole) is MemoryHole:
+                if hole.observation.id == observation_id and hole.memory == memory:
+                    return hole.get_selected_option()
+
+    def action_at_observation(self, observation_id, memory):
+        for index, hole in enumerate(self.design_space):
+            if type(hole) is ActionHole:
+                if hole.observation.id == observation_id and hole.memory == memory:
+                    return hole.get_selected_option()
 
     def explain_assignment(self, assignment) -> str:
         assignment_str = []
@@ -199,6 +228,7 @@ class Pomdp:
 
                 seen_observations.append(obs)
         return holes, seen_observations
+
 
 
 class Dtmc:
