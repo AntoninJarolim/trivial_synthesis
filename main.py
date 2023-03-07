@@ -1,9 +1,6 @@
 import math
 import threading
 import time
-
-import numpy as np
-import stormpy
 import stormpy.synthesis
 import stormpy.pomdp
 from stormpy import BuilderOptions
@@ -256,8 +253,8 @@ class Dtmc:
             self.mdp, all_states, choice, keep_unreachable_states, options
         )
         model = submodel_construction.model
-        state_map = list(submodel_construction.new_to_old_state_mapping)
-        choice_map = list(submodel_construction.new_to_old_action_mapping)
+        # state_map = list(submodel_construction.new_to_old_state_mapping)
+        # choice_map = list(submodel_construction.new_to_old_action_mapping)
         return model
 
     def mdp_as_dtmc(self):
@@ -376,14 +373,18 @@ class TimedSynthesizer(Synthesizer):
 
     def run(self):
         self.start_tracking_progress()
+        result = None
         try:
             result = super().run()
         except KeyboardInterrupt:
-            self.finished = True
+            self.finish()
             exit()
+        self.finish()
+        return result
+
+    def finish(self):
         self.finished = True
         self.print_progress()
-        return result
 
     def start_tracking_progress(self):
         self.start_time = time.time()
@@ -392,7 +393,7 @@ class TimedSynthesizer(Synthesizer):
     def schedule_process_print(self):
         if not self.finished:
             self.print_progress()
-            self.progress_scheduler = threading.Timer(3, self.schedule_process_print) #, args=(lambda: self.finished, ))
+            self.progress_scheduler = threading.Timer(3, self.schedule_process_print)
             self.progress_scheduler.start()
 
     def print_progress(self):
