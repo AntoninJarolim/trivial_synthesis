@@ -259,11 +259,16 @@ class Dtmc:
 
 
 class Property:
-    def __init__(self, formula):
+    def __init__(self, formula: str):
         self.formula = formula
         self.property = self.parse_property(formula)
         self.exact_formula = exact_specifications(formula)
         self.exact_property = self.parse_property(self.exact_formula)
+        self.optimizing = '?' in formula  # Is optimizing if contains '?'
+        self.maximizing = 'max' in formula
+
+    def __repr__(self):
+        return self.formula
 
     @staticmethod
     def parse_property(formula):
@@ -272,17 +277,46 @@ class Property:
         return properties[0]
 
 
+class Result:
+    def __init__(self, optimizing_property: Property):
+        self.maximizing_optimum = optimizing_property.maximizing if optimizing_property is not None else None
+        self.satisfying_assignment = None
+        self.optimal_value = None
+        self.assignment = None
+
+    def update_assignment(self, assignment, optimality_result):
+        # if there is no optimization property, then do update always
+        if self.maximizing_optimum is None:
+            self.satisfying_assignment = assignment
+        else:  # do update only if improves optimum
+            if self.improves_optimum(optimality_result):
+                self.optimal_value = optimality_result
+                self.satisfying_assignment = assignment
+
+    def improves_optimum(self, optimality_result):
+        if self.optimal_value is None:
+            return True
+        if self.maximizing_optimum:
+            return self.optimal_value < optimality_result
+        return self.optimal_value > optimality_result
+
+
 class Synthesizer:
     def __init__(self, design_space, specification):
         self.design_space = design_space
         self.specification = specification
         self.properties = [Property(formula) for formula in specification]
+        self.optimizing_property = self.find_optimizing_property()
 
     def verify_dtmc(self, dtmc):
-        synthesis_result = True
+        satisfying = True
         for prop in self.properties:
-            synthesis_result &= dtmc.verify_property(prop.property)
-        return synthesis_result
+            satisfying &= dtmc.verify_property(prop.property)
+
+        optimizing_value = None
+        if satisfying:
+            optimizing_value = dtmc.verify_property(self.optimizing_property.property)
+        return satisfying, optimizing_value
 
     def double_check(self, model, bv):
         results = []
@@ -294,19 +328,31 @@ class Synthesizer:
         return results
 
     def run(self):
-        satisfying_assignment = None
+        result = Result(self.optimizing_property)
+
         for assignment in self.design_space:
             dtmc = Dtmc(self.design_space.pomdp.unfolded, assignment.bv)
-            result = self.verify_dtmc(dtmc)
-            if result is True:
-                satisfying_assignment = assignment
-                # self.print_assignment(assignment, "Found satisfying assignment: ")
-        return satisfying_assignment
+            satisfying, optimality_result = self.verify_dtmc(dtmc)
+            if satisfying:
+                result.update_assignment(assignment, optimality_result)
+            # self.print_assignment(assignment, "Found satisfying assignment: ")
+        return result
 
     def print_assignment(self, satisfying_assignment, message=None):
         if message is not None:
             print(message)
         print(self.design_space.explain_assignment(satisfying_assignment.assignment))
+
+    def find_optimizing_property(self):
+        optimizing_property = None
+        for p in self.properties:
+            if p.optimizing:
+                if optimizing_property is None:
+                    optimizing_property = p
+                else:
+                    raise Exception("More than one optimizing property found!")
+        self.properties.remove(optimizing_property)
+        return optimizing_property
 
 
 def run_synthesis():
@@ -316,18 +362,18 @@ def run_synthesis():
     synthesizer = Synthesizer(design_space, specification)
 
     print("\n---------------- Synthesis initiated ----------------\n")
-    satisfying_assignment = synthesizer.run()
+    result = synthesizer.run()
 
     print("\n---------------- Synthesis completed ----------------\n")
-    if satisfying_assignment is None:
+    if result.satisfying_assignment is None:
         print("Satisfying assignment was not found.")
     else:
-        results = synthesizer.double_check(design_space.pomdp.unfolded, satisfying_assignment.bv)
-        results_str = ", ".join(str(r) for r in results)
-        print(f"Double-checking: {results_str}")
+        double_check_result = synthesizer.double_check(design_space.pomdp.unfolded, result.satisfying_assignment.bv)
+        results_str = ", ".join(str(r) for r in double_check_result)
+        print(f"Double-checking: {results_str} : {result.optimal_value}")
 
         print("Last satisfying assignment:")
-        print(design_space.explain_assignment(satisfying_assignment.assignment))
+        print(design_space.explain_assignment(result.satisfying_assignment.assignment))
 
 
 if __name__ == '__main__':
