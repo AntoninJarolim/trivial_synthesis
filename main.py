@@ -86,44 +86,21 @@ class State:
 class Pomdp:
     def __init__(self, file_path, memory_size=1):
         self.memory_size = memory_size
-        self.observation_states = None
         self.prism_program = stormpy.parse_prism_program(file_path)
-
         self.model = self.build_model()
         self.unfolded = self.unfold_memory(memory_size)
         self.unfolded_states = self.crate_unfolded_states()
         self.choice_labeling = self.model.choice_labeling
         self.observation_valuations = self.model.observation_valuations
 
-        self.design_space = self.create_design_space()
-
-    def __iter__(self):
-        self.nr_actions = self.unfolded.transition_matrix.nr_rows
-        self.current_assignment = None
-        return self
-
-    def __next__(self):
-        # do not update at fist iteration
-        if self.current_assignment is not None:
-            self.update_assignment()
-        self.current_assignment = [hole.selected_option_index for hole in self.design_space]
-        return Assignment(self.assignment_to_bv(), self.current_assignment)
-
-    def create_design_space(self):
-        holes, seen_observations = self.create_action_holes()
-        memory_holes = self.create_memory_holes(seen_observations)
-        design_space = holes + memory_holes
-        return design_space
-
-    def assignment_to_bv(self):
-        selected_actions = []
-        for state in self.unfolded_states:
-            action_at_observation = self.action_at_observation(state.observation, state.memory)
-            memory_at_observation = self.memory_at_observation(state.observation, state.memory)
-            select = action_at_observation.action.id * self.memory_size + memory_at_observation
-            choice_index = self.unfolded.get_choice_index(state.state.id, select)
-            selected_actions.append(choice_index)
-        return stormpy.BitVector(self.nr_actions, selected_actions)
+    def build_model(self):
+        builder = BuilderOptions()
+        builder.set_build_choice_labels(True)
+        builder.set_build_observation_valuations(True)
+        model = stormpy.build_sparse_model_with_options(self.prism_program, builder)
+        return stormpy.pomdp.make_canonic(model)
+        # ^ this also asserts that states with the same observation have the
+        # same number and the same order of available actions
 
     def crate_unfolded_states(self):
         states = []
@@ -135,32 +112,6 @@ class Pomdp:
                 s = State(unfolded_state, obs_at_state, m)
                 states.append(s)
         return states
-
-    def update_assignment(self):
-        for index, hole in enumerate(self.design_space):
-            overflow = hole.select_next_option()
-            if not overflow:
-                return
-        raise StopIteration
-
-    def memory_at_observation(self, observation_id, memory):
-        for index, hole in enumerate(self.design_space):
-            if type(hole) is MemoryHole:
-                if hole.observation.id == observation_id and hole.memory == memory:
-                    return hole.selected_option
-
-    def action_at_observation(self, observation_id, memory):
-        for index, hole in enumerate(self.design_space):
-            if type(hole) is ActionHole:
-                if hole.observation.id == observation_id and hole.memory == memory:
-                    return hole.selected_option
-
-    def explain_assignment(self, assignment) -> str:
-        assignment_str = []
-        for i, hole in enumerate(self.design_space):
-            if len(hole.options) > 1:
-                assignment_str.append(f"observation {hole.observation} -> {assignment[i]}")
-        return ', '.join(assignment_str)
 
     def unfold_memory(self, memory_size):
         # No need to unfold memory if memory=1
@@ -181,15 +132,6 @@ class Pomdp:
 
         return pomdp_manager.construct_mdp()
 
-    def build_model(self):
-        builder = BuilderOptions()
-        builder.set_build_choice_labels(True)
-        builder.set_build_observation_valuations(True)
-        model = stormpy.build_sparse_model_with_options(self.prism_program, builder)
-        return stormpy.pomdp.make_canonic(model)
-        # ^ this also asserts that states with the same observation have the
-        # same number and the same order of available actions
-
     def pomdp_as_mdp(self):
         # tm = mdp.transition_matrix
         # tm.make_row_grouping_trivial()
@@ -197,12 +139,72 @@ class Pomdp:
         components = stormpy.storage.SparseModelComponents(pomdp.transition_matrix, pomdp.labeling, pomdp.reward_models)
         return stormpy.storage.SparseMdp(components)
 
+
+class DesignSpace:
+    def __init__(self, model: Pomdp):
+        self.pomdp = model
+        self.nr_actions = self.pomdp.unfolded.transition_matrix.nr_rows
+        self.current_assignment = None
+
+        self.action_holes, seen_observations = self.create_action_holes()
+        self.memory_holes = self.create_memory_holes(seen_observations)
+
+    @property
+    def design_space(self):
+        return self.action_holes + self.memory_holes
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        # do not update at fist iteration
+        if self.current_assignment is not None:
+            self.update_assignment()
+        self.current_assignment = [hole.selected_option_index for hole in self.design_space]
+        return Assignment(self.assignment_to_bv(), self.current_assignment)
+
+    def assignment_to_bv(self):
+        selected_actions = []
+        for state in self.pomdp.unfolded_states:
+            action_at_observation = self.action_at_observation(state.observation, state.memory)
+            memory_at_observation = self.memory_at_observation(state.observation, state.memory)
+            select = action_at_observation.action.id * self.pomdp.memory_size + memory_at_observation
+            choice_index = self.pomdp.unfolded.get_choice_index(state.state.id, select)
+            selected_actions.append(choice_index)
+        return stormpy.BitVector(self.nr_actions, selected_actions)
+
+    def memory_at_observation(self, observation_id, memory):
+        for index, hole in enumerate(self.design_space):
+            if type(hole) is MemoryHole:
+                if hole.observation.id == observation_id and hole.memory == memory:
+                    return hole.selected_option
+
+    def action_at_observation(self, observation_id, memory):
+        for index, hole in enumerate(self.design_space):
+            if type(hole) is ActionHole:
+                if hole.observation.id == observation_id and hole.memory == memory:
+                    return hole.selected_option
+
+    def update_assignment(self):
+        for index, hole in enumerate(self.design_space):
+            overflow = hole.select_next_option()
+            if not overflow:
+                return
+        raise StopIteration
+
+    def explain_assignment(self, assignment) -> str:
+        assignment_str = []
+        for i, hole in enumerate(self.design_space):
+            if len(hole.options) > 1:
+                assignment_str.append(f"observation {hole.observation} -> {assignment[i]}")
+        return ', '.join(assignment_str)
+
     def create_memory_holes(self, seen_observations):
         holes = []
-        if self.memory_size > 1:
-            memory_options = [x for x in range(self.memory_size)]
+        if self.pomdp.memory_size > 1:
+            memory_options = [x for x in range(self.pomdp.memory_size)]
             for obs in seen_observations:
-                for mem in range(self.memory_size):
+                for mem in range(self.pomdp.memory_size):
                     mem_hole = MemoryHole(obs, memory_options, mem)
                     holes.append(mem_hole)
         return holes
@@ -210,15 +212,15 @@ class Pomdp:
     def create_action_holes(self):
         holes = []
         seen_observations = []
-        for state in self.model.states:
-            obs = Observation(state.id, self.model, self.observation_valuations)
+        for state in self.pomdp.model.states:
+            obs = Observation(state.id, self.pomdp.model, self.pomdp.observation_valuations)
             if obs.id not in [o.id for o in seen_observations]:
                 actions = []
                 for act in state.actions:
-                    choice = self.model.get_choice_index(state.id, act.id)
-                    actions.append(Action(act, self.choice_labeling, choice))
+                    choice = self.pomdp.model.get_choice_index(state.id, act.id)
+                    actions.append(Action(act, self.pomdp.choice_labeling, choice))
 
-                for mem in range(self.memory_size):
+                for mem in range(self.pomdp.memory_size):
                     holes.append(ActionHole(obs, actions, mem))
 
                 seen_observations.append(obs)
@@ -282,7 +284,7 @@ class Synthesizer:
     def run(self):
         satisfying_assignment = None
         for assignment in self.design_space:
-            dtmc = Dtmc(self.design_space.unfolded, assignment.bv)
+            dtmc = Dtmc(self.design_space.pomdp.unfolded, assignment.bv)
             result = self.verify_dtmc(dtmc)
             if result is True:
                 satisfying_assignment = assignment
@@ -299,7 +301,8 @@ class Synthesizer:
 
 def run_synthesis():
     template_path, specification, memory_size = get_args()
-    design_space = Pomdp(template_path, memory_size)
+    pomdp = Pomdp(template_path, memory_size)
+    design_space = DesignSpace(pomdp)
     synthesizer = Synthesizer(design_space, specification)
 
     print("\n---------------- Synthesis initiated ----------------\n")
@@ -309,7 +312,7 @@ def run_synthesis():
     if satisfying_assignment is None:
         print("Satisfying assignment was not found.")
     else:
-        results = synthesizer.double_check(design_space.unfolded, satisfying_assignment.bv)
+        results = synthesizer.double_check(design_space.pomdp.unfolded, satisfying_assignment.bv)
         results_str = ", ".join(str(r) for r in results)
         print(f"Double-checking: {results_str}")
 
