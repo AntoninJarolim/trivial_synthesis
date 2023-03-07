@@ -35,6 +35,10 @@ class Hole:
         self.selected_option_index = 0
         self.options = options
 
+    @property
+    def selected_option(self):
+        return self.options[self.selected_option_index]
+
     def select_next_option(self) -> bool:
         overflow = self.last_option_selected()
         self.selected_option_index = 0 if overflow else self.selected_option_index + 1
@@ -45,9 +49,6 @@ class Hole:
 
     def selected_str(self):
         return f" --> {self.options[self.selected_option_index]}"
-
-    def get_selected_option(self):
-        return self.options[self.selected_option_index]
 
 
 class ActionHole(Hole):
@@ -80,7 +81,6 @@ class State:
         self.memory = memory
         self.observation = observation
         self.state = state
-
 
 
 class Pomdp:
@@ -147,13 +147,13 @@ class Pomdp:
         for index, hole in enumerate(self.design_space):
             if type(hole) is MemoryHole:
                 if hole.observation.id == observation_id and hole.memory == memory:
-                    return hole.get_selected_option()
+                    return hole.selected_option
 
     def action_at_observation(self, observation_id, memory):
         for index, hole in enumerate(self.design_space):
             if type(hole) is ActionHole:
                 if hole.observation.id == observation_id and hole.memory == memory:
-                    return hole.get_selected_option()
+                    return hole.selected_option
 
     def explain_assignment(self, assignment) -> str:
         assignment_str = []
@@ -231,10 +231,7 @@ class Dtmc:
         self.mdp = self.restrict_mdp(choice)
         self.dtmc = self.mdp_as_dtmc()
 
-    def verify_property(self, formula):
-        # properties = stormpy.parse_properties_for_prism_program(formula, prism_program)
-        properties = stormpy.parse_properties(formula)
-        prop = properties[0]
+    def verify_property(self, prop):
         result = stormpy.model_checking(self.dtmc, prop)
         return result.at(0)
 
@@ -263,19 +260,21 @@ class Synthesizer:
     def __init__(self, design_space, specification):
         self.design_space = design_space
         self.specification = specification
+        self.properties = [prop for prop in self.parse_specification(self.specification)]
+        self.exact_specification = exact_specifications(specification)
+        self.exact_properties = [prop for prop in self.parse_specification(self.exact_specification)]
 
     def verify_dtmc(self, dtmc):
         synthesis_result = True
-        for prop in self.specification:
+        for prop in self.properties:
             synthesis_result &= dtmc.verify_property(prop)
         return synthesis_result
 
     def double_check(self, model, bv):
-        specification = exact_specifications(self.specification)
         results = []
         dtmc = Dtmc(model, bv)
         stormpy.export_to_drn(dtmc.dtmc, "model-trivial.drn")
-        for prop in specification:
+        for prop in self.exact_properties:
             result = dtmc.verify_property(prop)
             results.append(result)
         return results
@@ -287,9 +286,15 @@ class Synthesizer:
             result = self.verify_dtmc(dtmc)
             if result is True:
                 satisfying_assignment = assignment
-                print("Found satisfying assignment: ",
-                      self.design_space.explain_assignment(satisfying_assignment.assignment))
+                # print("Found satisfying assignment: ",
+                #       self.design_space.explain_assignment(satisfying_assignment.assignment))
         return satisfying_assignment
+
+    def parse_specification(self, specification):
+        for formula in specification:
+            # properties = stormpy.parse_properties_for_prism_program(formula, prism_program)
+            properties = stormpy.parse_properties(formula)
+            yield properties[0]
 
 
 def run_synthesis():
