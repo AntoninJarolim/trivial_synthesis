@@ -31,11 +31,13 @@ class Action:
 
 
 class Hole:
-    def __init__(self, observation, options):
+    def __init__(self, observation, options, memory):
         self.observation = observation
+        self.memory = memory
         self.selected_option_index = 0
         self.options = options
         self.options_size = len(self.options)
+        self.repr_str = ""
 
     @property
     def selected_option(self):
@@ -52,24 +54,25 @@ class Hole:
     def selected_str(self):
         return f" --> {self.options[self.selected_option_index]}"
 
+    def __repr__(self):
+        return f"{self.repr_str}({self.observation.label}, mem: {self.memory})={self.options} " + self.selected_str()
+
+    def __str__(self, selected_index=None):
+        if selected_index is None:
+            return self.__repr__()
+        return f"{self.repr_str}({self.observation.label}, mem: {self.memory})={self.options[selected_index]} "
+
 
 class ActionHole(Hole):
-    def __init__(self, observation, actions, memory: int, action_labels=None):
-        super().__init__(observation, actions)
-        self.memory = memory
-        self.action_labels = action_labels
-
-    def __repr__(self):
-        return f"A({self.observation.label}, mem: {self.memory})={self.options} " + self.selected_str()
+    def __init__(self, observation, actions, memory: int):
+        super().__init__(observation, actions, memory)
+        self.repr_str = 'A'
 
 
 class MemoryHole(Hole):
     def __init__(self, observation, options, memory: int):
-        super().__init__(observation, options)
-        self.memory = memory
-
-    def __repr__(self):
-        return f"M({self.observation.label}, mem:{self.memory})={self.options}" + self.selected_str()
+        super().__init__(observation, options, memory)
+        self.repr_str = 'M'
 
 
 class Assignment:
@@ -199,7 +202,7 @@ class DesignSpace:
         assignment_str = []
         for i, hole in enumerate(self.design_space):
             if len(hole.options) > 1:
-                assignment_str.append(f"observation {hole.observation} -> {assignment[i]}")
+                assignment_str.append(hole.__str__(assignment[i]))
         return ', '.join(assignment_str)
 
     def create_memory_holes(self, seen_observations):
@@ -376,7 +379,7 @@ class TimedSynthesizer(Synthesizer):
         result = None
         try:
             result = super().run()
-        except KeyboardInterrupt:
+        except:
             self.finish()
             exit()
         self.finish()
@@ -398,10 +401,10 @@ class TimedSynthesizer(Synthesizer):
 
     def print_progress(self):
         offset_time = time.time() - self.start_time
-        explored_percent = self.explored / self.design_space.size
+        explored_part = self.explored / self.design_space.size
         print(f"{offset_time:.2f}s: explored {self.explored} out of {self.design_space.size}"
-              f" -> {explored_percent:.6f}%" +
-              estimate_time(offset_time, explored_percent))
+              f" -> {explored_part * 100:.6f}%" +
+              estimate_time(offset_time, explored_part))
 
 
 def run_synthesis():
