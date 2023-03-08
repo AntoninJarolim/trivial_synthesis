@@ -184,7 +184,7 @@ class DesignSpace:
             if hole.observation.id == observation_id and hole.memory == memory:
                 action = hole.selected_option
 
-        memory_update = None
+        memory_update = 0
         for hole in self.memory_holes:
             if hole.observation.id == observation_id and hole.memory == memory:
                 memory_update = hole.selected_option
@@ -379,7 +379,8 @@ class TimedSynthesizer(Synthesizer):
         result = None
         try:
             result = super().run()
-        except:
+        except Exception:
+            print(Exception)
             self.finish()
             exit()
         self.finish()
