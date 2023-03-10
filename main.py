@@ -82,10 +82,16 @@ class Assignment:
 
 
 class State:
-    def __init__(self, state, observation, memory):
+    def __init__(self, state, observation, memory, action_ids):
+        self.action_ids = action_ids
         self.memory = memory
         self.observation = observation
         self.state = state
+
+    def find_action_index(self, action_id):
+        for i, a_id in enumerate(self.action_ids):
+            if a_id == action_id:
+                return i
 
 
 class Pomdp:
@@ -93,8 +99,10 @@ class Pomdp:
         self.memory_size = memory_size
         self.prism_program = stormpy.parse_prism_program(file_path)
         self.model = self.build_model()
-        self.unfolded = self.unfold_memory(memory_size)
-        self.unfolded_states = self.crate_unfolded_states()
+        self.memory_model = [0] * self.model.nr_observations
+        self.unfolded = self.unfold_memory()
+        print(self.unfolded.transition_matrix)
+        self.unfolded_states = self.create_unfolded_states()
         self.choice_labeling = self.model.choice_labeling
         self.observation_valuations = self.model.observation_valuations
 
@@ -107,33 +115,35 @@ class Pomdp:
         # ^ this also asserts that states with the same observation have the
         # same number and the same order of available actions
 
-    def crate_unfolded_states(self):
+    def create_unfolded_states(self):
         states = []
+        unfolded_states_nr = 0
         for state in self.model.states:
             obs_at_state = self.model.get_observation(state.id)
-            for m in range(self.memory_size):
-                unfolded_index = state.id * self.memory_size + m
+            action_indices_at_unf_state = self.action_indices_at_unfolded_states(state)
+            for m in range(self.memory_model[obs_at_state]):
+                unfolded_index = unfolded_states_nr
                 unfolded_state = self.unfolded.states[unfolded_index]
-                s = State(unfolded_state, obs_at_state, m)
+                s = State(unfolded_state, obs_at_state, m, action_indices_at_unf_state)
                 states.append(s)
+                unfolded_states_nr += 1
         return states
 
-    def unfold_memory(self, memory_size):
+    def unfold_memory(self):
         # No need to unfold memory if memory=1
-        if memory_size < 2:
+        if self.memory_size < 2:
             return self.pomdp_as_mdp()
 
         # mark perfect observations
-        # self.observation_states = [0 for obs in range(self.observations)]
-        # for state in range(self.pomdp.nr_states):
-        #     obs = self.pomdp.observations[state]
-        #     self.observation_states[obs] += 1
+        for state in range(self.model.nr_states):
+            obs = self.model.observations[state]
+            self.memory_model[obs] += 1
 
         # Create pomdp manager and unfold memory to pomdp creating mdp
         pomdp_manager = stormpy.synthesis.PomdpManager(self.model)
-        for obs in range(len(self.model.observations)):
-            # mem = self.observation_memory_size[obs]
-            pomdp_manager.set_observation_memory_size(obs, memory_size)
+        for obs_id in range(self.model.nr_observations):
+            mem = self.memory_model[obs_id]
+            pomdp_manager.set_observation_memory_size(obs_id, mem)
 
         return pomdp_manager.construct_mdp()
 
@@ -143,6 +153,18 @@ class Pomdp:
         pomdp = self.model
         components = stormpy.storage.SparseModelComponents(pomdp.transition_matrix, pomdp.labeling, pomdp.reward_models)
         return stormpy.storage.SparseMdp(components)
+
+    def action_indices_at_unfolded_states(self, state):
+        action_indices_at_state = []
+        for a in state.actions:
+            found_memories = []
+            for t in a.transitions:
+                obs = self.model.get_observation(t.column)
+                found_memories.append(self.memory_model[obs])
+
+            for row in range(max(found_memories)):
+                action_indices_at_state.append(a.id)
+        return action_indices_at_state
 
 
 class DesignSpace:
@@ -173,8 +195,9 @@ class DesignSpace:
         selected_actions = []
         for state in self.pomdp.unfolded_states:
             action_at_observation, memory_at_observation = self.get_selection(state.observation, state.memory)
-            select = action_at_observation.action.id * self.pomdp.memory_size + memory_at_observation
-            choice_index = self.pomdp.unfolded.get_choice_index(state.state.id, select)
+            act_id = state.find_action_index(action_at_observation.action.id)
+            action_at_state  = act_id + memory_at_observation
+            choice_index = self.pomdp.unfolded.get_choice_index(state.state.id, action_at_state)
             selected_actions.append(choice_index)
         return stormpy.BitVector(self.nr_actions, selected_actions)
 
@@ -208,9 +231,9 @@ class DesignSpace:
     def create_memory_holes(self, seen_observations):
         holes = []
         if self.pomdp.memory_size > 1:
-            memory_options = [x for x in range(self.pomdp.memory_size)]
             for obs in seen_observations:
-                for mem in range(self.pomdp.memory_size):
+                memory_options = [x for x in range(self.pomdp.memory_model[obs.id])]
+                for mem in memory_options:
                     mem_hole = MemoryHole(obs, memory_options, mem)
                     holes.append(mem_hole)
         return holes
@@ -221,12 +244,13 @@ class DesignSpace:
         for state in self.pomdp.model.states:
             obs = Observation(state.id, self.pomdp.model, self.pomdp.observation_valuations)
             if obs.id not in [o.id for o in seen_observations]:
+                # Find available actions in observation
                 actions = []
                 for act in state.actions:
                     choice = self.pomdp.model.get_choice_index(state.id, act.id)
                     actions.append(Action(act, self.pomdp.choice_labeling, choice))
 
-                for mem in range(self.pomdp.memory_size):
+                for mem in range(self.pomdp.memory_model[obs.id]):
                     holes.append(ActionHole(obs, actions, mem))
 
                 seen_observations.append(obs)
@@ -332,7 +356,7 @@ class Synthesizer:
     def double_check(self, model, bv):
         results = []
         dtmc = Dtmc(model, bv)
-        stormpy.export_to_drn(dtmc.dtmc, "model-trivial.drn")
+        # stormpy.export_to_drn(dtmc.dtmc, "model-trivial.drn")
         for prop in self.properties:
             result = dtmc.verify_property(prop.exact_property)
             results.append(result)
