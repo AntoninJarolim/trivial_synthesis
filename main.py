@@ -99,7 +99,7 @@ class Pomdp:
         self.memory_size = memory_size
         self.prism_program = stormpy.parse_prism_program(file_path)
         self.model = self.build_model()
-        self.memory_model = [0] * self.model.nr_observations
+        self.memory_model = None
         self.unfolded = self.unfold_memory()
         print(self.unfolded.transition_matrix)
         self.unfolded_states = self.create_unfolded_states()
@@ -132,12 +132,16 @@ class Pomdp:
     def unfold_memory(self):
         # No need to unfold memory if memory=1
         if self.memory_size < 2:
+            self.memory_model = [1] * self.model.nr_observations
             return self.pomdp_as_mdp()
 
-        # mark perfect observations
+        # mark perfect observations        
+        self.memory_model = [0] * self.model.nr_observations
         for state in range(self.model.nr_states):
             obs = self.model.observations[state]
             self.memory_model[obs] += 1
+
+        self.memory_model = list(map(lambda x : self.memory_size if x > 1 else 1, self.memory_model))
 
         # Create pomdp manager and unfold memory to pomdp creating mdp
         pomdp_manager = stormpy.synthesis.PomdpManager(self.model)
@@ -146,6 +150,13 @@ class Pomdp:
             pomdp_manager.set_observation_memory_size(obs_id, mem)
 
         return pomdp_manager.construct_mdp()
+
+    def set_imperfect_memory_size(self, memory_size):
+        ''' Set given memory size only to imperfect observations. '''
+        self.memory_model = [
+            memory_size if self.observation_states[obs]>1 else 1
+            for obs in range(self.observations)
+        ]
 
     def pomdp_as_mdp(self):
         # tm = mdp.transition_matrix

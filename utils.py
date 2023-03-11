@@ -75,6 +75,8 @@ def estimate_time(offset_time, explored_percent):
         return ""
     estimated = offset_time / explored_percent
     for t in ["s", "m", "h"]:
+        if t == "h":
+            break
         if estimated > 60:
             estimated /= 60
         else:
