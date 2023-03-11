@@ -129,10 +129,11 @@ class Pomdp:
                 unfolded_states_nr += 1
         return states
     
-    def create_memory_model(self, allow_perfect_observations = False):        
+    def create_memory_model(self, perfect_observations = True):        
         if self.memory_size < 2:
             return [1] * self.model.nr_observations
-        if not allow_perfect_observations:
+        
+        if not perfect_observations:
             return [self.memory_size] * self.model.nr_observations
             
         # count observation frequency         
@@ -412,13 +413,7 @@ class TimedSynthesizer(Synthesizer):
 
     def run(self):
         self.start_tracking_progress()
-        result = None
-        try:
-            result = super().run()
-        except Exception:
-            print(Exception)
-            self.finish()
-            exit()
+        result = super().run()
         self.finish()
         return result
 
@@ -434,6 +429,7 @@ class TimedSynthesizer(Synthesizer):
         if not self.finished:
             self.print_progress()
             self.progress_scheduler = threading.Timer(3, self.schedule_process_print)
+            self.progress_scheduler.deamon = True
             self.progress_scheduler.start()
 
     def print_progress(self):
