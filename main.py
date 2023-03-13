@@ -128,14 +128,14 @@ class Pomdp:
                 states.append(s)
                 unfolded_states_nr += 1
         return states
-    
-    def create_memory_model(self, perfect_observations = True):        
+
+    def create_memory_model(self, perfect_observations=False):
         if self.memory_size < 2:
             return [1] * self.model.nr_observations
-        
+
         if not perfect_observations:
             return [self.memory_size] * self.model.nr_observations
-            
+
         # count observation frequency         
         obs_seen_count = [0] * self.model.nr_observations
         for state in range(self.model.nr_states):
@@ -143,8 +143,7 @@ class Pomdp:
             obs_seen_count[obs] += 1
 
         # do not use more memory in perfectly observeable states
-        return list(map(lambda x : self.memory_size if x > 1 else 1, obs_seen_count))
-
+        return list(map(lambda x: self.memory_size if x > 1 else 1, obs_seen_count))
 
     def unfold_memory(self):
         # No need to unfold memory if memory=1
@@ -429,7 +428,7 @@ class TimedSynthesizer(Synthesizer):
         if not self.finished:
             self.print_progress()
             self.progress_scheduler = threading.Timer(3, self.schedule_process_print)
-            self.progress_scheduler.deamon = True
+            self.progress_scheduler.daemon = True
             self.progress_scheduler.start()
 
     def print_progress(self):
