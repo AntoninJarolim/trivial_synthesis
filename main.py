@@ -450,6 +450,7 @@ def run_synthesis():
     result = synthesizer.run()
 
     print("\n---------------- Synthesis completed ----------------\n")
+    print_props(specification)
     if result.satisfying_assignment is None:
         print("Satisfying assignment was not found.")
     else:

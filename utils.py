@@ -13,8 +13,12 @@ def read_props(props_path):
         if not line.startswith("//") and len(line) > 0:
             props.append(line)
     print("Specification: ", end="")
-    print(", ".join(props))
+    print_props(props)
     return props
+
+
+def print_props(props: list):
+    print(", ".join(props))
 
 
 def get_args():
