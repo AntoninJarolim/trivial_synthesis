@@ -11,6 +11,9 @@ class Observation:
     def __init__(self, state_id, model, observation_valuations):
         self.id = model.get_observation(state_id)
         self.label = str(observation_valuations.get_string(self.id)).replace("\t& ", ", ")
+        self.labels = self.label.strip("[]").split(", ")
+        self.labels = [label for label in self.labels if not label.endswith("0")]
+        self.label = f'[{", ".join(self.labels)}]'
 
     def __repr__(self):
         return f"id:{self.id} -> {self.label}"
@@ -129,14 +132,14 @@ class Pomdp:
                 unfolded_states_nr += 1
         return states
 
-    def create_memory_model(self, perfect_observations=False):
+    def create_memory_model(self, perfect_observations=True):
         if self.memory_size < 2:
             return [1] * self.model.nr_observations
 
         if not perfect_observations:
             return [self.memory_size] * self.model.nr_observations
 
-        # count observation frequency         
+        # count observation frequency
         obs_seen_count = [0] * self.model.nr_observations
         for state in range(self.model.nr_states):
             obs = self.model.observations[state]
@@ -238,15 +241,23 @@ class DesignSpace:
         for i, hole in enumerate(self.design_space):
             if len(hole.options) > 1:
                 assignment_str.append(hole.__str__(assignment[i]))
-        return ', '.join(assignment_str)
+        return '\n'.join(assignment_str)
 
     def create_memory_holes(self, seen_observations):
         holes = []
         if self.pomdp.memory_size > 1:
             for obs in seen_observations:
                 memory_options = [x for x in range(self.pomdp.memory_model[obs.id])]
+
+                memory_update_options = []
+                for s in self.pomdp.unfolded_states:
+                    if s.observation == obs.id:
+                        frequencies = [s.action_ids.count(act) for act in s.action_ids]
+                        memory_update_options = [x for x in range(max(frequencies))]
+                        break
+
                 for mem in memory_options:
-                    mem_hole = MemoryHole(obs, memory_options, mem)
+                    mem_hole = MemoryHole(obs, memory_update_options, mem)
                     holes.append(mem_hole)
         return holes
 
