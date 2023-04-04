@@ -1,6 +1,9 @@
+import datetime
 import math
 import threading
 import time
+import timeit
+
 import stormpy.synthesis
 import stormpy.pomdp
 from stormpy import BuilderOptions
@@ -145,7 +148,7 @@ class Pomdp:
             obs = self.model.observations[state]
             obs_seen_count[obs] += 1
 
-        # do not use more memory in perfectly observeable states
+        # do not use more memory in perfectly observable states
         return list(map(lambda x: self.memory_size if x > 1 else 1, obs_seen_count))
 
     def unfold_memory(self):
@@ -451,6 +454,46 @@ class TimedSynthesizer(Synthesizer):
 
 
 def run_synthesis():
+    mdp = read_pomdp_drn("file.drn")
+    environment = stormpy.Environment()
+
+    # policy iteration
+    environment.solver_environment.minmax_solver_environment.method = stormpy.MinMaxMethod.policy_iteration
+    time_before_p = datetime.datetime.now()
+    prop = Property('LRA>0.4 ["goal2"]')
+    result = stormpy.model_checking(mdp, prop.property, environment=environment).at(0)
+    time_after_p = datetime.datetime.now()
+    print(f"policy iteration: {time_after_p - time_before_p}")
+
+    # value iteration
+    environment.solver_environment.minmax_solver_environment.method = stormpy.MinMaxMethod.value_iteration
+    time_before_va = datetime.datetime.now()
+    prop = Property('LRA>0.4 ["goal2"]')
+    result = stormpy.model_checking(mdp, prop.property, environment=environment).at(0)
+    time_after_va = datetime.datetime.now()
+    print(f"value iteration: {time_after_va - time_before_va}")
+
+    exit(15)
+
+
+
+    prop = Property('LRAmax=? ["goal2"]')
+    result = stormpy.model_checking(mdp, prop.property, environment=environment).at(0)
+
+    prop = Property('LRA<0.4 ["goal2"]')
+    result = stormpy.model_checking(mdp, prop.property).at(0)
+
+
+    prop = Property('LRAmin=? ["goal2"]')
+    result = stormpy.model_checking(mdp, prop.property).at(0)
+
+    exit(6)
+
+
+
+
+
+
     template_path, specification, memory_size = get_args()
     pomdp = Pomdp(template_path, memory_size)
     design_space = DesignSpace(pomdp)
