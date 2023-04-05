@@ -104,7 +104,7 @@ class Pomdp:
         self.model = self.build_model()
         self.memory_model = self.create_memory_model()
         self.unfolded = self.unfold_memory()
-        print(self.unfolded.transition_matrix)
+        # print(self.unfolded.transition_matrix)
         self.unfolded_states = self.create_unfolded_states()
         self.choice_labeling = self.model.choice_labeling
         self.observation_valuations = self.model.observation_valuations
