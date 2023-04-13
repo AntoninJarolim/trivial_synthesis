@@ -55,12 +55,13 @@ esac
 
 # save properties file
 
-old_properties_file=$(cat $folder"sketch.props")
+cp $folder"sketch.props" $folder"sketch.props.tmp"
 write_back_old_file() {
-  echo -e $old_properties_file >$folder"sketch.props"
+  cp $folder"sketch.props.tmp" $folder"sketch.props"
+  rm $folder"sketch.props.tmp"
   exit 1
 }
-trap 'write_back_old_file' SIGINT
+trap 'write_back_old_file' SIGINT SIGSTOP
 
 mkdir -p "log/${benchmark_name}/${method_name}"
 
