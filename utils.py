@@ -24,12 +24,12 @@ def print_props(props: list):
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--project")
-    parser.add_argument("--memory-size", default=1, type=int)
+    parser.add_argument("--pomdp-memory-size", default=1, type=int)
     args = parser.parse_args()
     template_path = os.path.join(args.project, "sketch.templ")
     props_path = os.path.join(args.project, "sketch.props")
     props = read_props(props_path)
-    return template_path, props, args.memory_size
+    return template_path, props, args.pomdp_memory_size
 
 
 def exact_specifications(specification: str):

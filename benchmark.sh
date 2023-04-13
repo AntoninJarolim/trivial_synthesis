@@ -5,9 +5,14 @@ benchmark_name=$1
 
 # Set trivial synthesis (one-by-one) or AR (paynt)
 script_name="./trivial_synthesis/main.py"
-method_name="one"
+method_name="trivial"
 [ "$2" == "AR" ] && script_name="./synthesis/paynt.py" && method_name="AR"
 
+if [ -z "$3" ]; then
+  memory=1
+else
+  memory="$3"
+fi
 
 case $benchmark_name in
 "robot-battery-stay-LRA")
@@ -27,15 +32,20 @@ case $benchmark_name in
   )
   ;;
 "robot-battery-stay-P")
-  properties=("first line\nsecond line"
-    "third line\nfourth line"
-    "fifth line")
+  properties=(""
+    ""
+    "")
   ;;
-"array2")
+"robot-battery-LRA")
+  folder="./models/pomdp/no_goal_state/robot-battery/"
   properties=(
-    "line 1\nline 2\nline 3"
-    "line 4\nline 5\nline 6"
-    "line 7")
+    'LRAmax=? [ "exploring" ]'
+    'LRA>0.16 [ "exploring" ]'
+    'LRA>0.17 [ "exploring" ]'
+    'LRA>0.20 [ "exploring" ]'
+    'LRA>0.22 [ "exploring" ]'
+    'LRA>0.25 [ "exploring" ]'
+  )
   ;;
 *)
   echo "Invalid benchmark name"
@@ -44,7 +54,14 @@ case $benchmark_name in
 esac
 
 # save properties file
+
 old_properties_file=$(cat $folder"sketch.props")
+write_back_old_file() {
+  echo -e $old_properties_file >$folder"sketch.props"
+  exit 1
+}
+trap 'write_back_old_file' SIGINT
+
 mkdir -p "log/${benchmark_name}/${method_name}"
 
 for prop in "${properties[@]}"; do
@@ -55,7 +72,10 @@ for prop in "${properties[@]}"; do
   # Run the Python script and redirect output to file
   prop_names=$(echo "$prop" | tr '\n' '-' | sed 's/-$//')
 
-  python $script_name --project $folder >"log/${benchmark_name}/${method_name}/${prop_names}.log"
+  timeout 600 \
+    python $script_name --project $folder --pomdp-memory-size $memory \
+    > "log/${benchmark_name}/${method_name}/${prop_names}.log"
 done
 
-echo -e $old_properties_file >$folder"sketch.props"
+write_back_old_file
+
