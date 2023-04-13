@@ -23,11 +23,11 @@ def print_props(props: list):
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("project_path")
+    parser.add_argument("--project")
     parser.add_argument("--memory-size", default=1, type=int)
     args = parser.parse_args()
-    template_path = os.path.join(args.project_path, "sketch.templ")
-    props_path = os.path.join(args.project_path, "sketch.props")
+    template_path = os.path.join(args.project, "sketch.templ")
+    props_path = os.path.join(args.project, "sketch.props")
     props = read_props(props_path)
     return template_path, props, args.memory_size
 

@@ -1,3 +1,4 @@
+import datetime
 import math
 import threading
 import time
@@ -366,6 +367,11 @@ class Synthesizer:
         self.properties = [Property(formula) for formula in specification]
         self.optimizing_property = self.find_optimizing_property()
 
+        self.logfile = open("family-times.csv", "w")
+
+    def __del__(self):
+        self.logfile.close()
+
     def verify_dtmc(self, dtmc):
         satisfying = True
         for prop in self.properties:
@@ -375,6 +381,15 @@ class Synthesizer:
         if satisfying and self.optimizing_property is not None:
             optimizing_value = dtmc.verify_property(self.optimizing_property.property)
         return satisfying, optimizing_value
+
+    def timed_verify_dtmc(self, dtmc):
+        print("zase delam hromadu logu")
+        time_before = datetime.datetime.now()
+        satisfying, optimality_result = self.verify_dtmc(dtmc)
+        time_after = datetime.datetime.now()
+        analysis_time = time_after - time_before
+        self.logfile.write(f"{dtmc.dtmc.nr_states},{analysis_time}\n")
+        return satisfying, optimality_result
 
     def double_check(self, model, bv):
         results = []
