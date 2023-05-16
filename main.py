@@ -1,14 +1,29 @@
+"""
+Synthesizes FSC for POMDP using the one-by-one enumeration of controllers.
+"""
+__author__ = "Antonín Jarolím"
+__version__ = "1.0.1"
+__email__ = "xjarol06@vutbr.cz"
+
+# Generic/Built-in
 import datetime
 import math
 import threading
 import time
+
+# Own Libs
+from utils import *
+
+# Other Libs
 import stormpy.synthesis
 import stormpy.pomdp
 from stormpy import BuilderOptions
-from utils import *
 
 
 class Observation:
+    """
+    Used to store information about observations in parsed POMDP model
+    """
     def __init__(self, state_id, model, observation_valuations):
         self.id = model.get_observation(state_id)
         self.label = str(observation_valuations.get_string(self.id)).replace("\t& ", ", ")
@@ -21,9 +36,11 @@ class Observation:
 
 
 class Action:
+    """
+    Used to store information about actions in parsed POMDP model
+    """
     def __init__(self, action, choice_labeling, choice):
         self.action = action
-
         set_of_labels = choice_labeling.get_labels_of_choice(choice)
         self.label = str(set_of_labels) if len(set_of_labels) > 0 else "no_act_label"
 
@@ -35,6 +52,11 @@ class Action:
 
 
 class Hole:
+    """
+    Design-space of controllers is given by set of holes
+    selecting value for each hole creates concrete FSC
+    Class Hole stores the options and currently selected option
+    """
     def __init__(self, observation, options, memory):
         self.observation = observation
         self.memory = memory
@@ -68,24 +90,36 @@ class Hole:
 
 
 class ActionHole(Hole):
+    """
+    ActionHole stores options for possible actions to play at a given observation
+    """
     def __init__(self, observation, actions, memory: int):
         super().__init__(observation, actions, memory)
         self.repr_str = 'A'
 
 
 class MemoryHole(Hole):
+    """
+    MemoryHole stores options for memory updates at a given observation
+    """
     def __init__(self, observation, options, memory: int):
         super().__init__(observation, options, memory)
         self.repr_str = 'M'
 
 
 class Assignment:
+    """
+    Stores list of selected options and bitvector implementing this selections
+    """
     def __init__(self, bv, assignment):
         self.assignment = assignment
         self.bv = bv
 
 
 class State:
+    """
+    Used to store information about states in parsed POMDP model
+    """
     def __init__(self, state, observation, memory, action_ids):
         self.action_ids = action_ids
         self.memory = memory
@@ -99,13 +133,18 @@ class State:
 
 
 class Pomdp:
+    """
+    Pomdp (Partially observable Markov decision process)
+    class is used to parse and store specified POMDP model.
+    It also finds perfectly observable states to create memory model.
+    The memory model is then used to unfold memory to create Quotient MDP.
+    """
     def __init__(self, file_path, memory_size=1):
         self.memory_size = memory_size
         self.prism_program = stormpy.parse_prism_program(file_path)
         self.model = self.build_model()
         self.memory_model = self.create_memory_model()
         self.unfolded = self.unfold_memory()
-        # print(self.unfolded.transition_matrix)
         self.unfolded_states = self.create_unfolded_states()
         self.choice_labeling = self.model.choice_labeling
         self.observation_valuations = self.model.observation_valuations
@@ -184,6 +223,13 @@ class Pomdp:
 
 
 class DesignSpace:
+    """
+    DesignSpace describes the set of available FSC which are synthesized.
+    It creates design-space for a given pomdp model by creating memory
+    and action holes.
+    Iterating this object of DesignSpace class iterates trough
+    FSC described by design-space.
+    """
     def __init__(self, model: Pomdp):
         self.pomdp = model
         self.nr_actions = self.pomdp.unfolded.transition_matrix.nr_rows
@@ -286,6 +332,13 @@ class DesignSpace:
 
 
 class Dtmc:
+    """
+    Imposing FSC on MDP creates DTMC (Discrete-time Markov Chain)
+    by restricting to concrete actions and memory updates.
+    Initializing object of this class requires mdp and selected choices
+    and restricts mdp to create dtmc.
+    Dtmc can be further verified against some property.
+    """
     def __init__(self, mdp, choice):
         self.mdp = mdp
         self.mdp = self.restrict_mdp(choice)
@@ -317,6 +370,9 @@ class Dtmc:
 
 
 class Property:
+    """
+    Used to store information about parsed properties file
+    """
     def __init__(self, formula: str):
         self.formula = formula
         self.property = self.parse_property(formula)
@@ -336,6 +392,9 @@ class Property:
 
 
 class Result:
+    """
+    Stores best found assignment during (and after) the synthesis process
+    """
     def __init__(self, optimizing_property: Property):
         self.maximizing_optimum = optimizing_property.maximizing if optimizing_property is not None else None
         self.satisfying_assignment = None
@@ -360,6 +419,9 @@ class Result:
 
 
 class Synthesizer:
+    """
+    Finds FSC satisfying specification in design-space.
+    """
     def __init__(self, design_space, specification):
         self.explored = 0
         self.design_space = design_space
@@ -430,6 +492,10 @@ class Synthesizer:
 
 
 class TimedSynthesizer(Synthesizer):
+    """
+    Allows timing of the Synthesizer process.
+    Creates thread reliable for logging the progress of the synthesis.
+    """
     def __init__(self, design_space, specification):
         super().__init__(design_space, specification)
         self.start_time = None
@@ -466,19 +532,26 @@ class TimedSynthesizer(Synthesizer):
 
 
 def run_synthesis():
+    # Getting the arguments
     template_path, specification, memory_size = get_args()
+    # Parsing POMDP model from path
     pomdp = Pomdp(template_path, memory_size)
+    # Create set of FSCs for a given POMDP model
     design_space = DesignSpace(pomdp)
+    # Create the synthesizer object
     synthesizer = TimedSynthesizer(design_space, specification)
 
     print("\n---------------- Synthesis initiated ----------------\n")
     result = synthesizer.run()
-
     print("\n---------------- Synthesis completed ----------------\n")
+
+    # Print properties at the end of synthesis to provide overview
+    # before printing the synthesis result
     print_props(specification)
     if result.satisfying_assignment is None:
         print("Satisfying assignment was not found.")
     else:
+        # Check the synthesis result once more and print the result
         double_check_result = synthesizer.double_check(design_space.pomdp.unfolded, result.satisfying_assignment.bv)
         results_str = ", ".join(str(r) for r in double_check_result)
         print(f"Double-checking: {results_str} : {result.optimal_value}")

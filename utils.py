@@ -1,7 +1,16 @@
+"""
+Provides various utils for one-by-one synthesis loop.
+"""
+__author__ = "Antonín Jarolím"
+__version__ = "1.0.1"
+__email__ = "xjarol06@vutbr.cz"
+
+# Generic/Built-in
 import argparse
 import os
 import re
 
+# Other Libs
 import stormpy
 
 
