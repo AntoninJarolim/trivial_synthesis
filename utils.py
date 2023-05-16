@@ -32,10 +32,10 @@ def print_props(props: list):
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--project",
+    parser.add_argument("--project", dest="path",
                         help="Specifies the path to the project folder containing\
                          template and properties file")
-    parser.add_argument("--pomdp-memory-size", default=1, type=int,
+    parser.add_argument("--pomdp-memory-size", default=1, type=int, dest="int",
                         help="Defines the number of memory nodes to use in FSCs")
     args = parser.parse_args()
     template_path = os.path.join(args.project, "sketch.templ")
